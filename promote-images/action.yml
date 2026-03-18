@@ -27,15 +27,10 @@ inputs:
   to-registry:
     description: Target container registry prefix
     required: true
-  project-type:
-    description: >
-      Project type for version extraction: "python", "npm", or "auto"
-    required: false
-    default: auto
   version-file:
     description: >
-      Path to version file. Defaults to pyproject.toml or package.json
-      based on project-type.
+      Path to the file containing the version (.toml or .json).
+      If omitted, auto-detects pyproject.toml or package.json in repo root.
     required: false
   source-sha:
     description: >
@@ -107,7 +102,6 @@ runs:
       id: version
       uses: sunstoneinstitute/actions/compute-version@v1
       with:
-        project-type: ${{ inputs.project-type }}
         version-file: ${{ inputs.version-file }}
 
     - name: Copy images to target registry

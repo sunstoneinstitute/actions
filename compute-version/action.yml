@@ -4,16 +4,11 @@ description: >
   auto-incrementing the patch number based on existing git tags.
 
 inputs:
-  project-type:
-    description: >
-      Project type for version extraction: "python" (pyproject.toml),
-      "npm" (package.json), or "auto" (detect from files present).
-    required: false
-    default: auto
   version-file:
     description: >
-      Path to version file. Defaults to pyproject.toml (python) or
-      package.json (npm) in the repo root.
+      Path to the file containing the version. Supports pyproject.toml
+      (TOML) and package.json (JSON). If omitted, auto-detects by looking
+      for pyproject.toml then package.json in the repo root.
     required: false
 
 outputs:
@@ -30,32 +25,24 @@ runs:
     - id: version
       shell: bash
       run: |
-        PROJECT_TYPE="${{ inputs.project-type }}"
+        set -euo pipefail
         VERSION_FILE="${{ inputs.version-file }}"
 
-        # Auto-detect project type
-        if [ "$PROJECT_TYPE" = "auto" ]; then
+        # Auto-detect version file if not specified
+        if [ -z "$VERSION_FILE" ]; then
           if [ -f "pyproject.toml" ]; then
-            PROJECT_TYPE="python"
+            VERSION_FILE="pyproject.toml"
           elif [ -f "package.json" ]; then
-            PROJECT_TYPE="npm"
+            VERSION_FILE="package.json"
           else
-            echo "::error::Cannot auto-detect project type: no pyproject.toml or package.json found"
+            echo "::error::No version file specified and no pyproject.toml or package.json found"
             exit 1
           fi
         fi
 
-        # Set default version file
-        if [ -z "$VERSION_FILE" ]; then
-          case "$PROJECT_TYPE" in
-            python) VERSION_FILE="pyproject.toml" ;;
-            npm)    VERSION_FILE="package.json" ;;
-          esac
-        fi
-
-        # Extract major.minor
-        case "$PROJECT_TYPE" in
-          python)
+        # Extract major.minor based on file extension
+        case "$VERSION_FILE" in
+          *.toml)
             MAJOR_MINOR=$(python3 -c "
         import tomllib, pathlib
         d = tomllib.loads(pathlib.Path('$VERSION_FILE').read_text())
@@ -63,7 +50,7 @@ runs:
         print('.'.join(v.split('.')[:2]))
         ")
             ;;
-          npm)
+          *.json)
             MAJOR_MINOR=$(python3 -c "
         import json, pathlib
         v = json.loads(pathlib.Path('$VERSION_FILE').read_text())['version']
@@ -71,7 +58,7 @@ runs:
         ")
             ;;
           *)
-            echo "::error::Unknown project type: $PROJECT_TYPE"
+            echo "::error::Unsupported file type: $VERSION_FILE (expected .toml or .json)"
             exit 1
             ;;
         esac

@@ -28,7 +28,7 @@ tags.
 ```yaml
 - uses: sunstoneinstitute/actions/compute-version@v1
   with:
-    project-type: python  # or "npm", or "auto" (default)
+    version-file: hugin/pyproject.toml  # or package.json; auto-detects if omitted
 # outputs: tag (e.g. "v1.3.6"), major-minor (e.g. "1.3")
 ```
 
@@ -55,7 +55,6 @@ updates the target deploy branch, and creates a git tag.
     images: hugin molnir
     from-registry: europe-central2-docker.pkg.dev/sunstone-devel/my-app
     to-registry: europe-central2-docker.pkg.dev/sunstone-production/my-app
-    project-type: python
     version-file: hugin/pyproject.toml
 # outputs: from-tag, to-tag, source-sha
 ```
