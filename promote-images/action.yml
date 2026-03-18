@@ -1,0 +1,145 @@
+name: Promote Images
+description: >
+  Promote container images from one environment to another. Resolves the
+  source deploy branch commit, computes a semver prod tag, copies images
+  with crane, updates the target deploy branch, and creates a git tag.
+  Caller must: checkout with fetch-depth 0, authenticate to both registries,
+  and have crane available (or let this action install it).
+
+inputs:
+  from-env:
+    description: Source environment
+    required: false
+    default: dev
+  to-env:
+    description: Target environment
+    required: false
+    default: prod
+  images:
+    description: >
+      Space-separated list of image names (e.g. "hugin molnir" or
+      "app migrations"). Must match the image name suffixes in overlay
+      kustomization.yaml files.
+    required: true
+  from-registry:
+    description: Source container registry prefix
+    required: true
+  to-registry:
+    description: Target container registry prefix
+    required: true
+  project-type:
+    description: >
+      Project type for version extraction: "python", "npm", or "auto"
+    required: false
+    default: auto
+  version-file:
+    description: >
+      Path to version file. Defaults to pyproject.toml or package.json
+      based on project-type.
+    required: false
+  source-sha:
+    description: >
+      Specific commit SHA on the source deploy branch to promote.
+      Defaults to the latest commit on last-deploy/<from-env>.
+    required: false
+  overlay-base:
+    description: Base path for Kustomize overlays
+    required: false
+    default: deploy/overlays
+
+outputs:
+  from-tag:
+    description: Image tag on the source environment
+    value: ${{ steps.resolve.outputs.tag }}
+  to-tag:
+    description: Semver tag applied to the target environment
+    value: ${{ steps.version.outputs.tag }}
+  source-sha:
+    description: Commit SHA on the source deploy branch that was promoted
+    value: ${{ steps.resolve.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install crane
+      uses: imjasonh/setup-crane@v0.4
+
+    - name: Install yq
+      uses: mikefarah/yq@v4
+
+    - name: Resolve source deploy commit
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        FROM_ENV="${{ inputs.from-env }}"
+        SOURCE_SHA="${{ inputs.source-sha }}"
+        IMAGES="${{ inputs.images }}"
+        OVERLAY_BASE="${{ inputs.overlay-base }}"
+        BRANCH="last-deploy/${FROM_ENV}"
+
+        git fetch origin "$BRANCH"
+
+        if [ -n "$SOURCE_SHA" ]; then
+          echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+        else
+          SOURCE_SHA=$(git rev-parse "origin/${BRANCH}")
+          echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+        fi
+
+        # Extract the image tag from the first image's overlay kustomization
+        FIRST_IMAGE=$(echo "$IMAGES" | awk '{print $1}')
+        KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/${FIRST_IMAGE}/kustomization.yaml"
+
+        git checkout "origin/${BRANCH}" -- "$KUSTOMIZATION"
+        TAG=$(yq '.images[0].newTag' "$KUSTOMIZATION")
+        git checkout HEAD -- .
+
+        if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+          echo "::error::Could not extract image tag from ${KUSTOMIZATION}"
+          exit 1
+        fi
+
+        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "Source: ${BRANCH} @ ${SOURCE_SHA::7}, tag: ${TAG}"
+
+    - name: Compute target version
+      id: version
+      uses: sunstoneinstitute/actions/compute-version@v1
+      with:
+        project-type: ${{ inputs.project-type }}
+        version-file: ${{ inputs.version-file }}
+
+    - name: Copy images to target registry
+      shell: bash
+      run: |
+        set -euo pipefail
+        FROM_TAG="${{ steps.resolve.outputs.tag }}"
+        TO_TAG="${{ steps.version.outputs.tag }}"
+        FROM_REGISTRY="${{ inputs.from-registry }}"
+        TO_REGISTRY="${{ inputs.to-registry }}"
+
+        for img in ${{ inputs.images }}; do
+          echo "Copying ${img}:${FROM_TAG} → ${img}:${TO_TAG}"
+          crane copy \
+            "${FROM_REGISTRY}/${img}:${FROM_TAG}" \
+            "${TO_REGISTRY}/${img}:${TO_TAG}"
+        done
+
+    - name: Update target deploy branch
+      uses: sunstoneinstitute/actions/update-deploy-branch@v1
+      with:
+        env: ${{ inputs.to-env }}
+        images: ${{ inputs.images }}
+        registry: ${{ inputs.to-registry }}
+        tag: ${{ steps.version.outputs.tag }}
+        source-branch: last-deploy/${{ inputs.from-env }}
+        source-ref: ${{ steps.resolve.outputs.sha }}
+
+    - name: Create git tag
+      shell: bash
+      run: |
+        TAG="${{ steps.version.outputs.tag }}"
+        git tag "$TAG"
+        git push origin "$TAG"
+        echo "Tagged ${TAG}"

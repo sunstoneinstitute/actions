@@ -41,6 +41,28 @@ Computes the short SHA image tag from the current commit.
 # outputs: tag (e.g. "a1b2c3d")
 ```
 
+### `promote-images`
+
+Promotes container images from one environment to another. Resolves the
+source deploy branch, computes a semver tag, copies images with crane,
+updates the target deploy branch, and creates a git tag.
+
+```yaml
+- uses: sunstoneinstitute/actions/promote-images@v1
+  with:
+    from-env: dev       # default
+    to-env: prod        # default
+    images: hugin molnir
+    from-registry: europe-central2-docker.pkg.dev/sunstone-devel/my-app
+    to-registry: europe-central2-docker.pkg.dev/sunstone-production/my-app
+    project-type: python
+    version-file: hugin/pyproject.toml
+# outputs: from-tag, to-tag, source-sha
+```
+
+Caller must: `actions/checkout@v4` with `fetch-depth: 0` and authenticate
+to both container registries before calling this action.
+
 ### `validate-kustomize`
 
 Builds all Kustomize overlays to catch errors before deploy.
