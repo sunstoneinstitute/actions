@@ -1,0 +1,222 @@
+name: Update Deploy Branch
+description: >
+  Update a last-deploy/<env> branch for Flux GitOps deployment. Cherry-picks
+  new commits from the source branch onto the deploy branch, then updates
+  image tags in Kustomize overlays.
+
+inputs:
+  env:
+    description: Target environment (e.g. "dev", "prod")
+    required: true
+  images:
+    description: >
+      Space-separated list of image names to update in overlays.
+      Each name is matched against the `images[].name` field in
+      kustomization.yaml using a wildcard prefix (*<name>).
+      Example: "app migrations" or "hugin molnir"
+    required: false
+  registry:
+    description: >
+      Container registry prefix for image references (e.g.
+      "europe-central2-docker.pkg.dev/sunstone-devel/my-app").
+      Used as newName prefix: <registry>/<image-name>.
+    required: false
+  tag:
+    description: >
+      Image tag to set in overlays. When omitted, existing image tags
+      on the deploy branch are preserved (useful for infra-only changes).
+    required: false
+  source-ref:
+    description: >
+      The source commit to sync to. Defaults to HEAD of the checked-out branch.
+    required: false
+  source-branch:
+    description: >
+      Source deploy branch for promotion (e.g. "last-deploy/dev" when
+      promoting to prod). When set, cherry-picks from this branch instead
+      of main, and uses dev-sha trailers for tracking.
+    required: false
+  overlay-path:
+    description: >
+      Glob pattern for overlay kustomization files. Defaults to
+      "deploy/overlays/<env>/*/kustomization.yaml".
+    required: false
+  force-push:
+    description: >
+      Use force push (with lease) instead of regular push. Needed when
+      the deploy branch history is rewritten. Default: false.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - id: update
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        ENV="${{ inputs.env }}"
+        TAG="${{ inputs.tag }}"
+        REGISTRY="${{ inputs.registry }}"
+        IMAGES="${{ inputs.images }}"
+        SOURCE_REF="${{ inputs.source-ref }}"
+        SOURCE_BRANCH="${{ inputs.source-branch }}"
+        OVERLAY_PATH="${{ inputs.overlay-path }}"
+        FORCE_PUSH="${{ inputs.force-push }}"
+
+        DEPLOY_BRANCH="last-deploy/${ENV}"
+        SOURCE_SHA="${SOURCE_REF:-$(git rev-parse HEAD)}"
+
+        # Default overlay path
+        if [ -z "$OVERLAY_PATH" ]; then
+          OVERLAY_PATH="deploy/overlays/${ENV}/*/kustomization.yaml"
+        fi
+
+        # Determine tracking trailer name
+        if [ -n "$SOURCE_BRANCH" ]; then
+          TRAILER_KEY="dev-sha"
+        else
+          TRAILER_KEY="main-sha"
+        fi
+
+        echo "==> Updating ${DEPLOY_BRANCH}"
+        echo "    Source SHA: ${SOURCE_SHA}"
+        echo "    Image tag: ${TAG:-<preserve existing>}"
+        echo "    Images: ${IMAGES:-<none>}"
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        # ── Save current image tags if we need to preserve them ──
+
+        declare -A SAVED_NAMES SAVED_TAGS
+
+        save_image_tags() {
+          if [ -z "$TAG" ] && [ -n "$IMAGES" ]; then
+            for overlay in $OVERLAY_PATH; do
+              [ -f "$overlay" ] || continue
+              for img in $IMAGES; do
+                local name tag
+                name=$(yq ".images[] | select(.name == \"*${img}\") | .newName" "$overlay" 2>/dev/null) || true
+                tag=$(yq ".images[] | select(.name == \"*${img}\") | .newTag" "$overlay" 2>/dev/null) || true
+                if [ -n "$name" ] && [ "$name" != "null" ]; then
+                  SAVED_NAMES["${overlay}:${img}"]="$name"
+                  SAVED_TAGS["${overlay}:${img}"]="$tag"
+                fi
+              done
+            done
+          fi
+        }
+
+        # ── Fetch and checkout deploy branch ──
+
+        git fetch origin "$DEPLOY_BRANCH" 2>/dev/null || true
+
+        if ! git rev-parse --verify "origin/$DEPLOY_BRANCH" >/dev/null 2>&1; then
+          if [ -z "$TAG" ]; then
+            echo "==> Deploy branch doesn't exist yet, skipping (needs initial build)"
+            exit 0
+          fi
+          echo "==> Creating new deploy branch from source"
+          git checkout -B "$DEPLOY_BRANCH" "$SOURCE_SHA"
+        else
+          echo "==> Checking out existing deploy branch"
+          git checkout -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
+
+          # Save existing image tags before cherry-picking overwrites them
+          save_image_tags
+
+          # Find the last source SHA this deploy branch was synced to
+          LAST_SHA=$(git log --format=%B -20 "$DEPLOY_BRANCH" \
+            | awk "/^${TRAILER_KEY}:/ {print \$2; exit}")
+
+          if [ -n "$LAST_SHA" ]; then
+            echo "==> Last synced SHA (${TRAILER_KEY}): ${LAST_SHA}"
+          else
+            echo "==> No ${TRAILER_KEY} trailer found — skipping cherry-pick"
+          fi
+
+          # Cherry-pick new commits
+          if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" != "$SOURCE_SHA" ]; then
+            COMMITS_TO_PICK=$(git rev-list --reverse "${LAST_SHA}..${SOURCE_SHA}")
+            COMMIT_COUNT=$(echo "$COMMITS_TO_PICK" | grep -c . || true)
+            echo "==> Cherry-picking ${COMMIT_COUNT} commit(s):"
+
+            for commit in $COMMITS_TO_PICK; do
+              CHERRY_TITLE=$(git log --format='%h %s' -1 "$commit")
+              echo "::group::${CHERRY_TITLE}"
+
+              MERGE_OPT=""
+              if [ "$(git cat-file -p "$commit" | grep -c '^parent ')" -gt 1 ]; then
+                MERGE_OPT="-m 1"
+              fi
+
+              # shellcheck disable=SC2086
+              if git cherry-pick -X theirs $MERGE_OPT "$commit"; then
+                true
+              else
+                git checkout --theirs . 2>/dev/null || true
+                git add -A
+                if GIT_EDITOR=true git cherry-pick --continue 2>/dev/null; then
+                  true
+                else
+                  echo "    (empty — skipping)"
+                  git cherry-pick --skip
+                fi
+              fi
+              echo "::endgroup::"
+            done
+          elif [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$SOURCE_SHA" ]; then
+            echo "==> Deploy branch already up to date"
+          fi
+        fi
+
+        # ── Update image tags ──
+
+        if [ -n "$TAG" ] && [ -n "$IMAGES" ] && [ -n "$REGISTRY" ]; then
+          echo "==> Updating image tags to ${TAG}"
+          for overlay in $OVERLAY_PATH; do
+            [ -f "$overlay" ] || continue
+            for img in $IMAGES; do
+              yq -i "(.images[] | select(.name == \"*${img}\")) |= \
+                (.newName = \"${REGISTRY}/${img}\" | .newTag = \"${TAG}\")" \
+                "$overlay" 2>/dev/null || true
+            done
+          done
+          SUBJECT="deploy: ${ENV} ${TAG}"
+        elif [ -z "$TAG" ] && [ -n "$IMAGES" ]; then
+          echo "==> Restoring preserved image tags"
+          for overlay in $OVERLAY_PATH; do
+            [ -f "$overlay" ] || continue
+            for img in $IMAGES; do
+              local_name="${SAVED_NAMES["${overlay}:${img}"]:-}"
+              local_tag="${SAVED_TAGS["${overlay}:${img}"]:-}"
+              if [ -n "$local_name" ]; then
+                yq -i "(.images[] | select(.name == \"*${img}\")) |= \
+                  (.newName = \"${local_name}\" | .newTag = \"${local_tag}\")" \
+                  "$overlay" 2>/dev/null || true
+              fi
+            done
+          done
+          SUBJECT="deploy: ${ENV} (no image change)"
+        else
+          SUBJECT="deploy: ${ENV} (infra update)"
+        fi
+
+        # ── Commit and push ──
+
+        git add -A
+        if git commit -m "${SUBJECT}" -m "${TRAILER_KEY}: ${SOURCE_SHA}"; then
+          echo "==> Created deploy commit: ${SUBJECT}"
+        else
+          echo "==> No changes to commit"
+        fi
+
+        echo "==> Pushing ${DEPLOY_BRANCH}"
+        if [ "$FORCE_PUSH" = "true" ]; then
+          git push --force-with-lease origin "$DEPLOY_BRANCH"
+        else
+          git push origin "$DEPLOY_BRANCH"
+        fi
+        echo "==> Done"

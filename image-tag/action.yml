@@ -1,0 +1,14 @@
+name: Image Tag
+description: Compute the short SHA image tag for the current commit
+
+outputs:
+  tag:
+    description: Short SHA tag (7 chars)
+    value: ${{ steps.tag.outputs.tag }}
+
+runs:
+  using: composite
+  steps:
+    - id: tag
+      shell: bash
+      run: echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
