@@ -1,0 +1,40 @@
+name: Validate Kustomize
+description: >
+  Build all Kustomize overlays to catch errors before deploy. Iterates over
+  deploy/overlays/<env>/<component>/ directories and runs kustomize build.
+
+inputs:
+  environments:
+    description: Space-separated list of environments to validate
+    required: false
+    default: dev prod
+  overlay-base:
+    description: Base path for overlays
+    required: false
+    default: deploy/overlays
+
+runs:
+  using: composite
+  steps:
+    - name: Install kustomize
+      uses: imranismail/setup-kustomize@v2
+
+    - shell: bash
+      run: |
+        set -euo pipefail
+        ERRORS=0
+        for env in ${{ inputs.environments }}; do
+          for component in ${{ inputs.overlay-base }}/${env}/*/; do
+            [ -d "$component" ] || continue
+            echo "Validating ${component}..."
+            if ! kustomize build "$component" > /dev/null; then
+              echo "::error::Failed to build ${component}"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+        done
+        if [ "$ERRORS" -gt 0 ]; then
+          echo "::error::${ERRORS} overlay(s) failed validation"
+          exit 1
+        fi
+        echo "All overlays validated successfully."

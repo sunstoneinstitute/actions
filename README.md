@@ -41,6 +41,16 @@ Computes the short SHA image tag from the current commit.
 # outputs: tag (e.g. "a1b2c3d")
 ```
 
+### `validate-kustomize`
+
+Builds all Kustomize overlays to catch errors before deploy.
+
+```yaml
+- uses: sunstoneinstitute/actions/validate-kustomize@v1
+  with:
+    environments: dev prod  # default
+```
+
 ## Usage
 
 Since this is a private repo, calling workflows must have `actions: read`
