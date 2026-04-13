@@ -41,6 +41,12 @@ inputs:
     description: Base path for Kustomize overlays
     required: false
     default: deploy/overlays
+  overlay-path:
+    description: >
+      Glob pattern for overlay kustomization files, passed through to
+      update-deploy-branch. When omitted, auto-detected from overlay-base:
+      tries per-image subdirs first, falls back to flat layout.
+    required: false
 
 outputs:
   from-tag:
@@ -82,12 +88,24 @@ runs:
           echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
         fi
 
-        # Extract the image tag from the first image's overlay kustomization
+        # Extract the image tag from the source overlay kustomization.
+        # Try per-image subdir layout first, fall back to flat layout.
         FIRST_IMAGE=$(echo "$IMAGES" | awk '{print $1}')
-        KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/${FIRST_IMAGE}/kustomization.yaml"
+        SUBDIR_KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/${FIRST_IMAGE}/kustomization.yaml"
+        FLAT_KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/kustomization.yaml"
+
+        if git show "origin/${BRANCH}:${SUBDIR_KUSTOMIZATION}" >/dev/null 2>&1; then
+          KUSTOMIZATION="$SUBDIR_KUSTOMIZATION"
+        else
+          KUSTOMIZATION="$FLAT_KUSTOMIZATION"
+        fi
 
         git checkout "origin/${BRANCH}" -- "$KUSTOMIZATION"
-        TAG=$(yq '.images[0].newTag' "$KUSTOMIZATION")
+        TAG=$(yq ".images[] | select(.name == \"*${FIRST_IMAGE}\") | .newTag" "$KUSTOMIZATION")
+        # Fall back to first image entry if name selector didn't match
+        if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+          TAG=$(yq '.images[0].newTag' "$KUSTOMIZATION")
+        fi
         git checkout HEAD -- .
 
         if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
@@ -120,6 +138,23 @@ runs:
             "${TO_REGISTRY}/${img}:${TO_TAG}"
         done
 
+    - name: Detect overlay path for target env
+      id: overlay
+      shell: bash
+      run: |
+        OVERLAY_PATH="${{ inputs.overlay-path }}"
+        if [ -z "$OVERLAY_PATH" ]; then
+          TO_ENV="${{ inputs.to-env }}"
+          OVERLAY_BASE="${{ inputs.overlay-base }}"
+          # Check if per-image subdirs exist for the target env
+          if compgen -G "${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml" >/dev/null 2>&1; then
+            OVERLAY_PATH="${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml"
+          else
+            OVERLAY_PATH="${OVERLAY_BASE}/${TO_ENV}/kustomization.yaml"
+          fi
+        fi
+        echo "path=${OVERLAY_PATH}" >> "$GITHUB_OUTPUT"
+
     - name: Update target deploy branch
       uses: sunstoneinstitute/actions/update-deploy-branch@v1
       with:
@@ -129,6 +164,7 @@ runs:
         tag: ${{ steps.version.outputs.tag }}
         source-branch: last-deploy/${{ inputs.from-env }}
         source-ref: ${{ steps.resolve.outputs.sha }}
+        overlay-path: ${{ steps.overlay.outputs.path }}
 
     - name: Create git tag
       shell: bash

@@ -15,7 +15,7 @@ image tags in Kustomize overlays, and pushing the deploy branch.
   with:
     env: dev
     images: app migrations
-    registry: europe-central2-docker.pkg.dev/sunstone-devel/my-app
+    registry: ${{ vars.DEV__DOCKER_REGISTRY }}/my-app
     tag: ${{ steps.tag.outputs.sha }}
 ```
 
@@ -53,8 +53,8 @@ updates the target deploy branch, and creates a git tag.
     from-env: dev       # default
     to-env: prod        # default
     images: hugin molnir
-    from-registry: europe-central2-docker.pkg.dev/sunstone-devel/my-app
-    to-registry: europe-central2-docker.pkg.dev/sunstone-production/my-app
+    from-registry: ${{ vars.DEV__DOCKER_REGISTRY }}/my-app
+    to-registry: ${{ vars.PROD__DOCKER_REGISTRY }}/my-app
     version-file: hugin/pyproject.toml
 # outputs: from-tag, to-tag, source-sha
 ```
@@ -71,6 +71,27 @@ Builds all Kustomize overlays to catch errors before deploy.
   with:
     environments: dev prod  # default
 ```
+
+## Overlay Layouts
+
+The actions support two Kustomize overlay layouts and auto-detect which
+one is in use:
+
+**Subdir layout** — one kustomization per image:
+
+```
+deploy/overlays/<env>/<image>/kustomization.yaml
+```
+
+**Flat layout** — a single kustomization for all images:
+
+```
+deploy/overlays/<env>/kustomization.yaml
+```
+
+Both `update-deploy-branch` and `promote-images` detect the layout
+automatically. You can also override detection with the `overlay-path`
+input.
 
 ## Usage
 
