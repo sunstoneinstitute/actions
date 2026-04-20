@@ -18,7 +18,7 @@ inputs:
   registry:
     description: >
       Container registry prefix for image references (e.g.
-      "${{ vars.DEV__DOCKER_REGISTRY }}/my-app").
+      "REGISTRY/my-app").
       Used as newName prefix: <registry>/<image-name>.
     required: false
   tag:
