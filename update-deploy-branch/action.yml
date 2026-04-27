@@ -134,7 +134,8 @@ runs:
           if [ -n "$LAST_SHA" ]; then
             echo "==> Last synced SHA (${TRAILER_KEY}): ${LAST_SHA}"
           else
-            echo "==> No ${TRAILER_KEY} trailer found — skipping cherry-pick"
+            echo "::error::No ${TRAILER_KEY} trailer found in last 20 commits on ${DEPLOY_BRANCH}. The deploy branch is out of sync and needs manual repair (reset to main + tag patch)."
+            exit 1
           fi
 
           # Cherry-pick new commits
@@ -171,6 +172,10 @@ runs:
             echo "==> Deploy branch already up to date"
           fi
         fi
+
+        # ── Remove workflow files (GITHUB_TOKEN cannot push workflow changes) ──
+
+        git rm -rf --quiet .github/workflows/ 2>/dev/null || true
 
         # ── Update image tags ──
 
