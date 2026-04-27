@@ -81,14 +81,17 @@ runs:
 
         git fetch origin "$BRANCH"
 
-        # Resolve the main SHA that the source deploy branch is based on.
-        # The deploy branch is always one commit (the tag patch) ahead of main.
-        if [ -n "$SOURCE_SHA" ]; then
-          echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-        else
-          SOURCE_SHA=$(git rev-parse "origin/${BRANCH}~1")
-          echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+        # Resolve the main SHA that the source deploy branch is based on
+        # by reading the main-sha trailer from the latest deploy commit.
+        if [ -z "$SOURCE_SHA" ]; then
+          SOURCE_SHA=$(git log --format=%B -20 "origin/${BRANCH}" \
+            | grep -m1 '^main-sha:' | awk '{print $2}')
+          if [ -z "$SOURCE_SHA" ]; then
+            echo "::error::No main-sha trailer found on ${BRANCH}. Deploy branch needs manual repair."
+            exit 1
+          fi
         fi
+        echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
 
         # Extract the image tag from the source overlay kustomization.
         # Try per-image subdir layout first, fall back to flat layout.
