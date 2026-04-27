@@ -129,7 +129,7 @@ runs:
 
           # Find the last source SHA this deploy branch was synced to
           LAST_SHA=$(git log --format=%B -20 "$DEPLOY_BRANCH" \
-            | awk "/^${TRAILER_KEY}:/ {print \$2; exit}")
+            | grep -m1 "^${TRAILER_KEY}:" | awk '{print $2}' || true)
 
           if [ -n "$LAST_SHA" ]; then
             echo "==> Last synced SHA (${TRAILER_KEY}): ${LAST_SHA}"
