@@ -81,10 +81,12 @@ runs:
 
         git fetch origin "$BRANCH"
 
+        # Resolve the main SHA that the source deploy branch is based on.
+        # The deploy branch is always one commit (the tag patch) ahead of main.
         if [ -n "$SOURCE_SHA" ]; then
           echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
         else
-          SOURCE_SHA=$(git rev-parse "origin/${BRANCH}")
+          SOURCE_SHA=$(git rev-parse "origin/${BRANCH}~1")
           echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
         fi
 
@@ -162,7 +164,6 @@ runs:
         images: ${{ inputs.images }}
         registry: ${{ inputs.to-registry }}
         tag: ${{ steps.version.outputs.tag }}
-        source-branch: last-deploy/${{ inputs.from-env }}
         source-ref: ${{ steps.resolve.outputs.sha }}
         overlay-path: ${{ steps.overlay.outputs.path }}
 
