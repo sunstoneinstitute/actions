@@ -68,9 +68,20 @@ runs:
         DEPLOY_BRANCH="last-deploy/${ENV}"
         SOURCE_SHA="${SOURCE_REF:-$(git rev-parse HEAD)}"
 
-        # Default overlay path
+        # Default overlay path. Mixed layouts are real: a repo can have
+        # BOTH a flat deploy/overlays/<env>/kustomization.yaml AND
+        # per-job subdirs like .../<env>/migrations/kustomization.yaml.
+        # A subdir-only glob silently skips the flat file.
         if [ -z "$OVERLAY_PATH" ]; then
-          OVERLAY_PATH="deploy/overlays/${ENV}/*/kustomization.yaml"
+          PATHS=()
+          FLAT="deploy/overlays/${ENV}/kustomization.yaml"
+          [ -f "$FLAT" ] && PATHS+=("$FLAT")
+          if compgen -G "deploy/overlays/${ENV}/*/kustomization.yaml" >/dev/null 2>&1; then
+            while IFS= read -r f; do
+              PATHS+=("$f")
+            done < <(compgen -G "deploy/overlays/${ENV}/*/kustomization.yaml")
+          fi
+          OVERLAY_PATH="${PATHS[*]}"
         fi
 
         # Determine tracking trailer name
@@ -186,8 +197,33 @@ runs:
             for img in $IMAGES; do
               yq -i "(.images[] | select(.name == \"*${img}\")) |= \
                 (.newName = \"${REGISTRY}/${img}\" | .newTag = \"${TAG}\")" \
-                "$overlay" 2>/dev/null || true
+                "$overlay"
             done
+          done
+          # Verify each requested image ended up with newTag == TAG in
+          # at least one overlay. Without this, a stale layout (mixed
+          # flat+subdir kustomizations, typoed image name, wrong
+          # overlay-path) silently produces a deploy commit whose
+          # title says ${TAG} but whose content still points at the
+          # previous tag. See https://github.com/sunstoneinstitute/trusthere/issues/132.
+          for img in $IMAGES; do
+            matched=0
+            for overlay in $OVERLAY_PATH; do
+              [ -f "$overlay" ] || continue
+              ACTUAL=$(yq ".images[] | select(.name == \"*${img}\") | .newTag" "$overlay" 2>/dev/null || true)
+              # yq prints one line per match; any line equal to TAG counts.
+              while IFS= read -r line; do
+                if [ "$line" = "$TAG" ]; then
+                  matched=1
+                fi
+              done <<< "$ACTUAL"
+            done
+            if [ "$matched" -ne 1 ]; then
+              echo "::error::Image '${img}' was not updated to '${TAG}' in any overlay."
+              echo "::error::Searched: ${OVERLAY_PATH}"
+              echo "::error::Check that an overlay's images[] has an entry whose .name ends in '${img}', and that overlay-path covers the file containing it."
+              exit 1
+            fi
           done
           SUBJECT="deploy: ${ENV} ${TAG}"
         elif [ -z "$TAG" ] && [ -n "$IMAGES" ]; then
@@ -215,7 +251,18 @@ runs:
         if git commit -m "${SUBJECT}" -m "${TRAILER_KEY}: ${SOURCE_SHA}"; then
           echo "==> Created deploy commit: ${SUBJECT}"
         else
-          echo "==> No changes to commit"
+          # If cherry-picks moved the branch forward but no deploy
+          # commit was produced, pushing would leave trailerless
+          # commits on top of the deploy branch — the next run's
+          # ${TRAILER_KEY} lookup would either find the OLD trailer
+          # (and replay history) or fail. Refuse instead. See
+          # https://github.com/sunstoneinstitute/trusthere/issues/132.
+          if [ -n "${LAST_SHA:-}" ] && [ "$LAST_SHA" != "$SOURCE_SHA" ]; then
+            echo "::error::Cherry-picks moved ${DEPLOY_BRANCH} from ${LAST_SHA::7} to ${SOURCE_SHA::7} but no deploy commit was produced."
+            echo "::error::Refusing to push: trailerless cherry-picks would break the next run's ${TRAILER_KEY} lookup."
+            exit 1
+          fi
+          echo "==> No changes to commit (branch already up to date)"
         fi
 
         echo "==> Pushing ${DEPLOY_BRANCH}"
