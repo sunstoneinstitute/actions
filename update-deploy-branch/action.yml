@@ -155,6 +155,30 @@ runs:
             COMMIT_COUNT=$(echo "$COMMITS_TO_PICK" | grep -c . || true)
             echo "==> Cherry-picking ${COMMIT_COUNT} commit(s):"
 
+            # ── Cherry-pick policy ──
+            #
+            # We use `-X theirs` so that overlay-file edits living on the
+            # deploy branch (image-tag mutations from previous deploys) do not
+            # collide with incoming commits from main that touch the same
+            # overlay files. The image tags are rewritten by this action below,
+            # so silently preferring the incoming side for content conflicts
+            # is correct.
+            #
+            # We deliberately do NOT auto-resolve harder failures. An earlier
+            # version of this action ran `git checkout --theirs .` followed by
+            # `git cherry-pick --continue || git cherry-pick --skip` whenever
+            # `-X theirs` could not finish on its own — for example, on
+            # delete/modify conflicts or any other unmerged state. That trade
+            # produced deploy branches that quietly disagreed with main, with
+            # no signal anywhere that a merge had been forced. We would rather
+            # fail loudly: a human resets last-deploy/<env> to main, re-applies
+            # the current image tags, and pushes (the manual repair procedure
+            # documented in the README's troubleshooting section).
+            #
+            # Empty cherry-picks (a commit that becomes a no-op because its
+            # changes are already on the deploy branch) are NOT a failure. We
+            # detect them by checking that `git ls-files --unmerged` is empty
+            # after a non-zero cherry-pick exit, then `--skip` and continue.
             for commit in $COMMITS_TO_PICK; do
               CHERRY_TITLE=$(git log --format='%h %s' -1 "$commit")
               echo "::group::${CHERRY_TITLE}"
@@ -165,17 +189,16 @@ runs:
               fi
 
               # shellcheck disable=SC2086
-              if git cherry-pick -X theirs $MERGE_OPT "$commit"; then
-                true
-              else
-                git checkout --theirs . 2>/dev/null || true
-                git add -A
-                if GIT_EDITOR=true git cherry-pick --continue 2>/dev/null; then
-                  true
-                else
-                  echo "    (empty — skipping)"
-                  git cherry-pick --skip
+              if ! git cherry-pick -X theirs $MERGE_OPT "$commit"; then
+                if [ -n "$(git ls-files --unmerged)" ]; then
+                  git cherry-pick --abort
+                  echo "::error::Cherry-pick conflict on ${CHERRY_TITLE}."
+                  echo "::error::The deploy branch has diverged from main and cannot be auto-resolved."
+                  echo "::error::Manual repair: reset last-deploy/${ENV} to main, re-apply current image tags, push."
+                  exit 1
                 fi
+                echo "    (empty cherry-pick — already applied, skipping)"
+                git cherry-pick --skip
               fi
               echo "::endgroup::"
             done
