@@ -100,6 +100,41 @@ permission on this repo, or the org must allow actions from internal repos.
 Configure in org settings under Actions > General > Allow actions from
 internal repositories.
 
+## Troubleshooting
+
+### `update-deploy-branch` fails with "Cherry-pick conflict" or "No `<key>` trailer found"
+
+These two errors mean the `last-deploy/<env>` branch can no longer be brought
+forward by the cherry-pick strategy and needs to be reconstructed manually.
+The action will not auto-resolve, because past attempts at silent recovery
+produced deploy branches that quietly disagreed with `main`.
+
+**Recovery, in short:**
+
+1. From the app repo, capture the current `images[].newName` / `newTag` values
+   from every `deploy/overlays/<env>/.../kustomization.yaml` on
+   `origin/last-deploy/<env>`. These are what's currently running in `<env>`.
+2. Reset `last-deploy/<env>` to:
+   - `origin/main` for `last-deploy/dev`
+   - `origin/last-deploy/dev` for `last-deploy/prod`
+3. Re-apply the captured image tags to the overlays.
+4. `git rm -rf .github/workflows/` (the deploy branch must be workflow-free —
+   the GITHUB_TOKEN the action uses cannot push workflow file changes).
+5. Commit with a tracking trailer in the message body:
+   - `main-sha: <sha>` when resync source is `origin/main`
+   - `dev-sha: <sha>` when resync source is `origin/last-deploy/dev`
+
+   The `<sha>` must be the commit you reset to.
+6. `git push --force-with-lease origin last-deploy/<env>`.
+
+**Easier:** install the [`sunstone-devops`](https://github.com/sunstoneinstitute/claude-plugins)
+plugin and invoke its `deploy-branch-repair` skill. It walks through the
+capture/reset/re-apply/trailer/push sequence with the right commands for the
+overlay layout you're on.
+
+If `last-deploy/prod` is broken and `last-deploy/dev` is also broken, repair
+`dev` first — `prod` resyncs from `dev`.
+
 ## Versioning
 
 Tags follow `v1`, `v1.0.0` convention. Use `@v1` for latest compatible.

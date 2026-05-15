@@ -145,7 +145,15 @@ runs:
           if [ -n "$LAST_SHA" ]; then
             echo "==> Last synced SHA (${TRAILER_KEY}): ${LAST_SHA}"
           else
-            echo "::error::No ${TRAILER_KEY} trailer found in last 20 commits on ${DEPLOY_BRANCH}. The deploy branch is out of sync and needs manual repair (reset to main + tag patch)."
+            echo "::error::No ${TRAILER_KEY} trailer found in last 20 commits on ${DEPLOY_BRANCH}."
+            echo "::error::The deploy branch lost its tracking trailer and cannot resync automatically."
+            echo "::error::Manual repair (preserves currently-deployed image tags):"
+            echo "::error::  1. Capture current overlay image tags from origin/${DEPLOY_BRANCH}."
+            echo "::error::  2. Reset ${DEPLOY_BRANCH} to origin/main (or origin/last-deploy/dev for prod)."
+            echo "::error::  3. Re-apply captured tags, remove .github/workflows/, commit with"
+            echo "::error::     trailer '${TRAILER_KEY}: <source-sha>', force-push with --force-with-lease."
+            echo "::error::See README 'Troubleshooting' section, or run the 'deploy-branch-repair' skill"
+            echo "::error::from the sunstone-devops plugin (https://github.com/sunstoneinstitute/claude-plugins)."
             exit 1
           fi
 
@@ -171,9 +179,8 @@ runs:
             # delete/modify conflicts or any other unmerged state. That trade
             # produced deploy branches that quietly disagreed with main, with
             # no signal anywhere that a merge had been forced. We would rather
-            # fail loudly: a human resets last-deploy/<env> to main, re-applies
-            # the current image tags, and pushes (the manual repair procedure
-            # documented in the README's troubleshooting section).
+            # fail loudly with concrete repair instructions (see the error
+            # branch below and the Troubleshooting section in README.md).
             #
             # Empty cherry-picks (a commit that becomes a no-op because its
             # changes are already on the deploy branch) are NOT a failure. We
@@ -193,8 +200,14 @@ runs:
                 if [ -n "$(git ls-files --unmerged)" ]; then
                   git cherry-pick --abort
                   echo "::error::Cherry-pick conflict on ${CHERRY_TITLE}."
-                  echo "::error::The deploy branch has diverged from main and cannot be auto-resolved."
-                  echo "::error::Manual repair: reset last-deploy/${ENV} to main, re-apply current image tags, push."
+                  echo "::error::-X theirs could not auto-resolve; the deploy branch has diverged from main."
+                  echo "::error::Manual repair (preserves currently-deployed image tags):"
+                  echo "::error::  1. Capture current overlay image tags from origin/${DEPLOY_BRANCH}."
+                  echo "::error::  2. Reset ${DEPLOY_BRANCH} to origin/main (or origin/last-deploy/dev for prod)."
+                  echo "::error::  3. Re-apply captured tags, remove .github/workflows/, commit with"
+                  echo "::error::     trailer '${TRAILER_KEY}: <source-sha>', force-push with --force-with-lease."
+                  echo "::error::See README 'Troubleshooting' section, or run the 'deploy-branch-repair' skill"
+                  echo "::error::from the sunstone-devops plugin (https://github.com/sunstoneinstitute/claude-plugins)."
                   exit 1
                 fi
                 echo "    (empty cherry-pick — already applied, skipping)"
