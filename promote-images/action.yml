@@ -147,17 +147,32 @@ runs:
       id: overlay
       shell: bash
       run: |
+        set -euo pipefail
         OVERLAY_PATH="${{ inputs.overlay-path }}"
         if [ -z "$OVERLAY_PATH" ]; then
           TO_ENV="${{ inputs.to-env }}"
           OVERLAY_BASE="${{ inputs.overlay-base }}"
-          # Check if per-image subdirs exist for the target env
+          # Mixed layouts are real: a repo can have BOTH a flat
+          # deploy/overlays/<env>/kustomization.yaml (the app) AND
+          # deploy/overlays/<env>/<job>/kustomization.yaml subdirs
+          # (sidecars like migrations). A subdir-only glob silently
+          # skips the flat file and the deploy commit ships with the
+          # wrong newTag. Collect every overlay that exists.
+          PATHS=()
+          FLAT="${OVERLAY_BASE}/${TO_ENV}/kustomization.yaml"
+          [ -f "$FLAT" ] && PATHS+=("$FLAT")
           if compgen -G "${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml" >/dev/null 2>&1; then
-            OVERLAY_PATH="${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml"
-          else
-            OVERLAY_PATH="${OVERLAY_BASE}/${TO_ENV}/kustomization.yaml"
+            while IFS= read -r f; do
+              PATHS+=("$f")
+            done < <(compgen -G "${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml")
           fi
+          if [ ${#PATHS[@]} -eq 0 ]; then
+            echo "::error::No kustomization.yaml found under ${OVERLAY_BASE}/${TO_ENV}"
+            exit 1
+          fi
+          OVERLAY_PATH="${PATHS[*]}"
         fi
+        echo "Detected overlay paths: ${OVERLAY_PATH}"
         echo "path=${OVERLAY_PATH}" >> "$GITHUB_OUTPUT"
 
     - name: Update target deploy branch
