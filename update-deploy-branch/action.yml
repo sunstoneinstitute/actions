@@ -181,14 +181,29 @@ runs:
 
         if [ -n "$TAG" ] && [ -n "$IMAGES" ] && [ -n "$REGISTRY" ]; then
           echo "==> Updating image tags to ${TAG}"
+          MATCHED=0
+          SEARCHED_OVERLAYS=""
           for overlay in $OVERLAY_PATH; do
             [ -f "$overlay" ] || continue
+            SEARCHED_OVERLAYS="${SEARCHED_OVERLAYS} ${overlay}"
             for img in $IMAGES; do
+              # Skip overlays where this image isn't declared. Otherwise the
+              # yq |= is a silent no-op and the deploy branch advances without
+              # the newTag bump (silent ship-old-image bug).
+              MATCH=$(yq ".images[] | select(.name == \"*${img}\") | .name" "$overlay" 2>/dev/null || true)
+              if [ -z "$MATCH" ] || [ "$MATCH" = "null" ]; then
+                continue
+              fi
               yq -i "(.images[] | select(.name == \"*${img}\")) |= \
                 (.newName = \"${REGISTRY}/${img}\" | .newTag = \"${TAG}\")" \
                 "$overlay" 2>/dev/null || true
+              MATCHED=$((MATCHED + 1))
             done
           done
+          if [ "$MATCHED" -eq 0 ]; then
+            echo "::error::No overlay matched any of the requested images (${IMAGES}). Searched:${SEARCHED_OVERLAYS:- <none>}. Each overlay must contain an images: entry whose .name ends with one of the requested image names. Pass overlay-path explicitly if auto-detection picked the wrong overlay."
+            exit 1
+          fi
           SUBJECT="deploy: ${ENV} ${TAG}"
         elif [ -z "$TAG" ] && [ -n "$IMAGES" ]; then
           echo "==> Restoring preserved image tags"

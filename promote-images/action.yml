@@ -151,11 +151,30 @@ runs:
         if [ -z "$OVERLAY_PATH" ]; then
           TO_ENV="${{ inputs.to-env }}"
           OVERLAY_BASE="${{ inputs.overlay-base }}"
-          # Check if per-image subdirs exist for the target env
-          if compgen -G "${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml" >/dev/null 2>&1; then
-            OVERLAY_PATH="${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml"
+          FLAT="${OVERLAY_BASE}/${TO_ENV}/kustomization.yaml"
+
+          # Prefer the flat layout when it has an images: section. Otherwise
+          # check if any per-image subdir kustomization declares images: —
+          # subdirs without images: (e.g. a migrations Job overlay) are NOT
+          # per-image overlays and must not drive the auto-detection.
+          if [ -f "$FLAT" ] && yq -e '.images' "$FLAT" >/dev/null 2>&1; then
+            OVERLAY_PATH="$FLAT"
           else
-            OVERLAY_PATH="${OVERLAY_BASE}/${TO_ENV}/kustomization.yaml"
+            FOUND_IMAGE_SUBDIR=false
+            for f in "${OVERLAY_BASE}/${TO_ENV}"/*/kustomization.yaml; do
+              [ -f "$f" ] || continue
+              if yq -e '.images' "$f" >/dev/null 2>&1; then
+                FOUND_IMAGE_SUBDIR=true
+                break
+              fi
+            done
+            if [ "$FOUND_IMAGE_SUBDIR" = "true" ]; then
+              OVERLAY_PATH="${OVERLAY_BASE}/${TO_ENV}/*/kustomization.yaml"
+            else
+              # Default to flat even if it lacks images:; downstream
+              # update-deploy-branch will surface a clear error.
+              OVERLAY_PATH="$FLAT"
+            fi
           fi
         fi
         echo "path=${OVERLAY_PATH}" >> "$GITHUB_OUTPUT"
