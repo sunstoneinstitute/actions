@@ -12,7 +12,9 @@ inputs:
     description: >
       Space-separated list of image names to update in overlays.
       Each name is matched against the `images[].name` field in
-      kustomization.yaml using a wildcard prefix (*<name>).
+      kustomization.yaml either exactly ("app") or as a registry-prefixed
+      entry whose name ends with "/<name>"
+      ("ghcr.io/sunstoneinstitute/app"). Both forms are handled.
       Example: "app migrations" or "hugin molnir"
     required: false
   registry:
@@ -88,6 +90,23 @@ runs:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
 
+        # ── Image entry matcher ──
+        #
+        # Match an overlay images[] entry by the bare image name input
+        # whether the entry's .name is bare ("api-token-broker") or
+        # registry-prefixed ("ghcr.io/sunstoneinstitute/api-token-broker",
+        # which happens when the base sets newName). We do NOT rely on the
+        # glob semantics of yq's `==` operator (those differ between yq
+        # implementations/versions and silently produced no-op pins — the
+        # ship-old-image bug). Instead we match exactly OR by an anchored
+        # "/<name>" suffix via test().
+        #
+        # $1 = bare image name. Emits a yq select() filter expression.
+        img_selector() {
+          local img="$1"
+          printf 'select(.name == "%s" or (.name | test("/%s$")))' "$img" "$img"
+        }
+
         # ── Save current image tags if we need to preserve them ──
 
         declare -A SAVED_NAMES SAVED_TAGS
@@ -97,9 +116,10 @@ runs:
             for overlay in $OVERLAY_PATH; do
               [ -f "$overlay" ] || continue
               for img in $IMAGES; do
-                local name tag
-                name=$(yq ".images[] | select(.name == \"*${img}\") | .newName" "$overlay" 2>/dev/null) || true
-                tag=$(yq ".images[] | select(.name == \"*${img}\") | .newTag" "$overlay" 2>/dev/null) || true
+                local name tag sel
+                sel="$(img_selector "$img")"
+                name=$(yq ".images[] | ${sel} | .newName" "$overlay" 2>/dev/null) || true
+                tag=$(yq ".images[] | ${sel} | .newTag" "$overlay" 2>/dev/null) || true
                 if [ -n "$name" ] && [ "$name" != "null" ]; then
                   SAVED_NAMES["${overlay}:${img}"]="$name"
                   SAVED_TAGS["${overlay}:${img}"]="$tag"
@@ -182,26 +202,48 @@ runs:
         if [ -n "$TAG" ] && [ -n "$IMAGES" ] && [ -n "$REGISTRY" ]; then
           echo "==> Updating image tags to ${TAG}"
           MATCHED=0
+          PINNED=0
           SEARCHED_OVERLAYS=""
           for overlay in $OVERLAY_PATH; do
             [ -f "$overlay" ] || continue
             SEARCHED_OVERLAYS="${SEARCHED_OVERLAYS} ${overlay}"
             for img in $IMAGES; do
+              sel="$(img_selector "$img")"
               # Skip overlays where this image isn't declared. Otherwise the
               # yq |= is a silent no-op and the deploy branch advances without
               # the newTag bump (silent ship-old-image bug).
-              MATCH=$(yq ".images[] | select(.name == \"*${img}\") | .name" "$overlay" 2>/dev/null || true)
+              MATCH=$(yq ".images[] | ${sel} | .name" "$overlay" 2>/dev/null || true)
               if [ -z "$MATCH" ] || [ "$MATCH" = "null" ]; then
                 continue
               fi
-              yq -i "(.images[] | select(.name == \"*${img}\")) |= \
-                (.newName = \"${REGISTRY}/${img}\" | .newTag = \"${TAG}\")" \
-                "$overlay" 2>/dev/null || true
               MATCHED=$((MATCHED + 1))
+
+              # Capture the entry before/after so we can assert the pin
+              # actually took effect. Do NOT swallow yq errors here: a failed
+              # rewrite must surface, not silently leave the old tag in place.
+              BEFORE=$(yq ".images[] | ${sel} | .newTag" "$overlay" 2>/dev/null || true)
+              yq -i "(.images[] | ${sel}) |= \
+                (.newName = \"${REGISTRY}/${img}\" | .newTag = \"${TAG}\")" \
+                "$overlay"
+              AFTER=$(yq ".images[] | ${sel} | .newTag" "$overlay" 2>/dev/null || true)
+
+              if [ "$AFTER" != "$TAG" ]; then
+                echo "::error::Failed to pin ${img} to ${TAG} in ${overlay} (newTag is '${AFTER}', expected '${TAG}', was '${BEFORE}'). The matcher selected the entry but the rewrite did not take effect — refusing to ship a stale image."
+                exit 1
+              fi
+              echo "    ${overlay}: ${img} ${BEFORE:-<unset>} -> ${TAG}"
+              PINNED=$((PINNED + 1))
             done
           done
           if [ "$MATCHED" -eq 0 ]; then
-            echo "::error::No overlay matched any of the requested images (${IMAGES}). Searched:${SEARCHED_OVERLAYS:- <none>}. Each overlay must contain an images: entry whose .name ends with one of the requested image names. Pass overlay-path explicitly if auto-detection picked the wrong overlay."
+            echo "::error::No overlay matched any of the requested images (${IMAGES}). Searched:${SEARCHED_OVERLAYS:- <none>}. Each overlay must contain an images: entry whose .name is, or ends with \"/\", one of the requested image names. Pass overlay-path explicitly if auto-detection picked the wrong overlay."
+            exit 1
+          fi
+          # Post-condition: at least one entry must have been pinned to TAG.
+          # Guards against the "deploy: <env> v<tag>" commit masquerading as a
+          # successful deploy while every overlay still pins the old tag.
+          if [ "$PINNED" -eq 0 ]; then
+            echo "::error::Matched ${MATCHED} image entr(ies) but none were pinned to ${TAG}. Refusing to create a no-op deploy commit that ships the previous image."
             exit 1
           fi
           SUBJECT="deploy: ${ENV} ${TAG}"
@@ -213,7 +255,8 @@ runs:
               local_name="${SAVED_NAMES["${overlay}:${img}"]:-}"
               local_tag="${SAVED_TAGS["${overlay}:${img}"]:-}"
               if [ -n "$local_name" ]; then
-                yq -i "(.images[] | select(.name == \"*${img}\")) |= \
+                sel="$(img_selector "$img")"
+                yq -i "(.images[] | ${sel}) |= \
                   (.newName = \"${local_name}\" | .newTag = \"${local_tag}\")" \
                   "$overlay" 2>/dev/null || true
               fi
