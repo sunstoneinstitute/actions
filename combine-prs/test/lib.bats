@@ -16,3 +16,10 @@ PRS='[
   [ "$(jq 'length' <<<"$output")" -eq 2 ]
   [ "$(jq -r '.[].number' <<<"$output" | sort | tr '\n' ' ')" = "1 3 " ]
 }
+
+@test "select_target returns number	branch of the oldest candidate" {
+  candidates="$(filter_candidates "$PRS" "dependabot")"
+  run select_target "$candidates"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'1\tdependabot/github_actions/a' ]
+}
