@@ -56,6 +56,7 @@ JSON
 JSON
   run "${BATS_TEST_DIRNAME}/../combine-prs.sh"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"conflicts; left open"* ]]
   grep -q "head=dependabot/clean" "$GH_STUB_LOG"
   grep -q "head=dependabot/conflict" "$GH_STUB_LOG"
   grep -q "pr edit 10" "$GH_STUB_LOG"
