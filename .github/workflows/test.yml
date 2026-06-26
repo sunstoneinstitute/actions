@@ -17,5 +17,5 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: npm install -g bats
+      - run: sudo npm install -g bats
       - run: bats combine-prs/test
