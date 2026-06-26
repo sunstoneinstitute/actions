@@ -17,7 +17,7 @@ PRS='[
   [ "$(jq -r '.[].number' <<<"$output" | sort | tr '\n' ' ')" = "1 3 " ]
 }
 
-@test "select_target returns number	branch of the oldest candidate" {
+@test "select_target returns the oldest candidate as number then branch" {
   candidates="$(filter_candidates "$PRS" "dependabot")"
   run select_target "$candidates"
   [ "$status" -eq 0 ]
@@ -47,4 +47,10 @@ PRS='[
   run build_body 1 '[{"number":3,"title":"bump b"}]' '[]'
   [ "$status" -eq 0 ]
   [[ "$output" != *"Left open (merge conflict)"* ]]
+}
+
+@test "build_body shows _none_ when nothing was bundled" {
+  run build_body 1 '[]' '[]'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"_none_"* ]]
 }
