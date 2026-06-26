@@ -19,3 +19,16 @@ select_target() {
 other_candidates() {
   jq --argjson t "$2" '[.[] | select(.number != $t)]' <<<"$1"
 }
+
+# build_body <target-number> <combined-json> <skipped-json>
+# combined/skipped are JSON arrays of {number,title}. Echo a markdown body.
+build_body() {
+  local combined skipped
+  combined="$(jq -r '.[] | "- #\(.number) \(.title)"' <<<"$2")"
+  skipped="$(jq -r '.[] | "- #\(.number) \(.title)"' <<<"$3")"
+  printf 'Combined dependabot updates into #%s.\n\n' "$1"
+  printf '### Bundled\n%s\n' "${combined:-_none_}"
+  if [[ -n "$skipped" ]]; then
+    printf '\n### Left open (merge conflict)\n%s\n' "$skipped"
+  fi
+}

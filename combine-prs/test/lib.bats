@@ -31,3 +31,20 @@ PRS='[
   [ "$(jq 'length' <<<"$output")" -eq 1 ]
   [ "$(jq -r '.[0].number' <<<"$output")" -eq 3 ]
 }
+
+@test "build_body lists bundled PRs and a conflict section when present" {
+  combined='[{"number":3,"title":"bump b"}]'
+  skipped='[{"number":5,"title":"bump c"}]'
+  run build_body 1 "$combined" "$skipped"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"into #1"* ]]
+  [[ "$output" == *"- #3 bump b"* ]]
+  [[ "$output" == *"Left open (merge conflict)"* ]]
+  [[ "$output" == *"- #5 bump c"* ]]
+}
+
+@test "build_body omits the conflict section when nothing was skipped" {
+  run build_body 1 '[{"number":3,"title":"bump b"}]' '[]'
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Left open (merge conflict)"* ]]
+}
