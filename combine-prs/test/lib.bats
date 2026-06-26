@@ -23,3 +23,11 @@ PRS='[
   [ "$status" -eq 0 ]
   [ "$output" = $'1\tdependabot/github_actions/a' ]
 }
+
+@test "other_candidates excludes the target PR number" {
+  candidates="$(filter_candidates "$PRS" "dependabot")"
+  run other_candidates "$candidates" 1
+  [ "$status" -eq 0 ]
+  [ "$(jq 'length' <<<"$output")" -eq 1 ]
+  [ "$(jq -r '.[0].number' <<<"$output")" -eq 3 ]
+}

@@ -13,3 +13,9 @@ filter_candidates() {
 select_target() {
   jq -r 'sort_by(.createdAt) | .[0] | "\(.number)\t\(.headRefName)"' <<<"$1"
 }
+
+# other_candidates <candidates-json> <target-number>
+# Echo a JSON array of candidates excluding the target PR number.
+other_candidates() {
+  jq --argjson t "$2" '[.[] | select(.number != $t)]' <<<"$1"
+}
