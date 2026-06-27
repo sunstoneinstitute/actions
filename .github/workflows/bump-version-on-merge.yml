@@ -39,7 +39,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           BUMP=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" \
-            --json labels -q '.labels[].name' | grep -oE 'bump-(major|minor|patch)' | head -1 || true)
+            --json labels -q '.labels[].name' | grep -E '^bump-(major|minor|patch)$' | head -1 || true)
           if [ -z "$BUMP" ]; then
             echo "::notice::No bump-* label on PR #$PR_NUMBER. Skipping release."
             gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" \
@@ -54,4 +54,5 @@ jobs:
         if: steps.bump.outputs.type != ''
         env:
           RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-        run: scripts/bump-release.sh "${{ steps.bump.outputs.type }}"
+          BUMP_TYPE: ${{ steps.bump.outputs.type }}
+        run: scripts/bump-release.sh "$BUMP_TYPE"
