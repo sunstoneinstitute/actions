@@ -72,6 +72,21 @@ Builds all Kustomize overlays to catch errors before deploy.
     environments: dev prod  # default
 ```
 
+### `combine-prs`
+
+Combines open dependabot PRs into the oldest one nightly using server-side
+merges, then closes the superseded PRs. Creates no new PR, so the default
+`GITHUB_TOKEN` (with `contents: write` + `pull-requests: write`) is enough.
+
+```yaml
+- uses: sunstoneinstitute/actions/combine-prs@v1
+  # with:
+  #   branch-prefix: dependabot   # default
+  #   min-combine: "2"            # default
+```
+
+PRs whose branches conflict are left open and listed in the combined PR body.
+
 ## Overlay Layouts
 
 The actions support two Kustomize overlay layouts and auto-detect which

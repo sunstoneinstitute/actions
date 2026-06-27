@@ -1,0 +1,24 @@
+name: Combine PRs
+description: Combine open dependabot PRs into the oldest one via server-side merges
+
+inputs:
+  branch-prefix:
+    description: Only combine PRs whose head branch starts with this prefix
+    default: dependabot
+  min-combine:
+    description: Minimum number of candidate PRs required before combining
+    default: "2"
+  github-token:
+    description: Token with contents:write and pull-requests:write
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_BRANCH_PREFIX: ${{ inputs.branch-prefix }}
+        INPUT_MIN_COMBINE: ${{ inputs.min-combine }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: ${{ github.action_path }}/combine-prs.sh
