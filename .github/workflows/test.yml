@@ -11,11 +11,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck combine-prs/lib.sh combine-prs/combine-prs.sh
+      - run: shellcheck combine-prs/lib.sh combine-prs/combine-prs.sh scripts/bump-release.sh
   bats:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - run: sudo npm install -g bats
-      - run: bats combine-prs/test
+      - run: bats combine-prs/test scripts/test

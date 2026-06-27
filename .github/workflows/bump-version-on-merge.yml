@@ -1,0 +1,57 @@
+name: Bump Version on Merge
+
+# Adapted from sunstoneinstitute/horndb (bump-version-on-merge.yml), reshaped
+# for this tag-only actions repo. On PR merge into main, the
+# bump-(major|minor|patch) label drives a new vX.Y.Z tag at the merge commit
+# and slides the floating major tag vN to it. No bump-* label -> no release
+# (a comment explains the skip).
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: bump-version-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine bump type from PR labels
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          BUMP=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" \
+            --json labels -q '.labels[].name' | grep -oE 'bump-(major|minor|patch)' | head -1 || true)
+          if [ -z "$BUMP" ]; then
+            echo "::notice::No bump-* label on PR #$PR_NUMBER. Skipping release."
+            gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" \
+              --body "Release skipped: no \`bump-major\`/\`bump-minor\`/\`bump-patch\` label on this PR." || true
+            echo "type=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Detected bump type: ${BUMP#bump-}"
+            echo "type=${BUMP#bump-}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tag release and slide major tag
+        if: steps.bump.outputs.type != ''
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: scripts/bump-release.sh "${{ steps.bump.outputs.type }}"
