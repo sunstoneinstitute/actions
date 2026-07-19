@@ -1,14 +1,16 @@
 name: Compute Version
 description: >
-  Compute a semver prod tag from pyproject.toml or package.json major.minor,
-  auto-incrementing the patch number based on existing git tags.
+  Compute a semver prod tag from pyproject.toml, package.json, or a
+  plain-text VERSION file's major.minor, auto-incrementing the patch
+  number based on existing git tags.
 
 inputs:
   version-file:
     description: >
       Path to the file containing the version. Supports pyproject.toml
-      (TOML) and package.json (JSON). If omitted, auto-detects by looking
-      for pyproject.toml then package.json in the repo root.
+      (TOML), package.json (JSON), and a plain-text VERSION file (e.g.
+      "0.1" or "0.1.0"). If omitted, auto-detects by looking for
+      pyproject.toml, then package.json, then VERSION in the repo root.
     required: false
 
 outputs:
@@ -34,14 +36,16 @@ runs:
             VERSION_FILE="pyproject.toml"
           elif [ -f "package.json" ]; then
             VERSION_FILE="package.json"
+          elif [ -f "VERSION" ]; then
+            VERSION_FILE="VERSION"
           else
-            echo "::error::No version file specified and no pyproject.toml or package.json found"
+            echo "::error::No version file specified and no pyproject.toml, package.json, or VERSION found"
             exit 1
           fi
         fi
 
-        # Extract major.minor based on file extension
-        case "$VERSION_FILE" in
+        # Extract major.minor based on file type
+        case "$(basename "$VERSION_FILE")" in
           *.toml)
             MAJOR_MINOR=$(python3 -c "
         import tomllib, pathlib
@@ -57,8 +61,11 @@ runs:
         print('.'.join(v.split('.')[:2]))
         ")
             ;;
+          VERSION)
+            MAJOR_MINOR=$(tr -d '[:space:]' < "$VERSION_FILE" | cut -d. -f1,2)
+            ;;
           *)
-            echo "::error::Unsupported file type: $VERSION_FILE (expected .toml or .json)"
+            echo "::error::Unsupported file type: $VERSION_FILE (expected .toml, .json, or a plain-text VERSION file)"
             exit 1
             ;;
         esac
