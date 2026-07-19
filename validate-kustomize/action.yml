@@ -1,7 +1,9 @@
 name: Validate Kustomize
 description: >
-  Build all Kustomize overlays to catch errors before deploy. Iterates over
-  deploy/overlays/<env>/<component>/ directories and runs kustomize build.
+  Build all Kustomize overlays to catch errors before deploy. Validates each
+  deploy/overlays/<env>/ directory directly if it holds a kustomization.yaml
+  (flat layout), and any deploy/overlays/<env>/<component>/ subdirectories
+  (per-component layout, e.g. app/, migrations/, db/).
 
 inputs:
   environments:
