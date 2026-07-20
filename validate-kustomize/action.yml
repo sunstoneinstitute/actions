@@ -1,7 +1,9 @@
 name: Validate Kustomize
 description: >
-  Build all Kustomize overlays to catch errors before deploy. Iterates over
-  deploy/overlays/<env>/<component>/ directories and runs kustomize build.
+  Build all Kustomize overlays to catch errors before deploy. Validates each
+  deploy/overlays/<env>/ directory directly if it holds a kustomization.yaml
+  (flat layout), and any deploy/overlays/<env>/<component>/ subdirectories
+  (per-component layout, e.g. app/, migrations/, db/).
 
 inputs:
   environments:
@@ -24,7 +26,20 @@ runs:
         set -euo pipefail
         ERRORS=0
         for env in ${{ inputs.environments }}; do
-          for component in ${{ inputs.overlay-base }}/${env}/*/; do
+          ENV_DIR="${{ inputs.overlay-base }}/${env}"
+          [ -d "$ENV_DIR" ] || continue
+
+          # Flat layout: the env dir itself is a kustomization root.
+          if [ -f "${ENV_DIR}/kustomization.yaml" ] || [ -f "${ENV_DIR}/kustomization.yml" ]; then
+            echo "Validating ${ENV_DIR}..."
+            if ! kustomize build "$ENV_DIR" > /dev/null; then
+              echo "::error::Failed to build ${ENV_DIR}"
+              ERRORS=$((ERRORS + 1))
+            fi
+          fi
+
+          # Per-component subdir layout (e.g. app/, migrations/, db/).
+          for component in "${ENV_DIR}"/*/; do
             [ -d "$component" ] || continue
             echo "Validating ${component}..."
             if ! kustomize build "$component" > /dev/null; then
