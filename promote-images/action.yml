@@ -43,9 +43,17 @@ inputs:
     default: deploy/overlays
   overlay-path:
     description: >
-      Glob pattern for overlay kustomization files, passed through to
-      update-deploy-branch. When omitted, auto-detected from overlay-base:
-      tries per-image subdirs first, falls back to flat layout.
+      Glob pattern for overlay kustomization files in the TARGET env, passed
+      through to update-deploy-branch. When omitted, auto-detected from
+      overlay-base: tries per-image subdirs first, falls back to flat layout.
+    required: false
+  from-overlay-path:
+    description: >
+      Path to the single kustomization.yaml in the SOURCE env to read the
+      current image tag from. Required when the source overlay directory is
+      not named after from-env (e.g. env "dev" living in
+      deploy/overlays/hzdev). When omitted, auto-detected from overlay-base
+      and from-env: tries the per-image subdir first, falls back to flat.
     required: false
 
 outputs:
@@ -97,15 +105,26 @@ runs:
         echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
 
         # Extract the image tag from the source overlay kustomization.
-        # Try per-image subdir layout first, fall back to flat layout.
+        # Explicit from-overlay-path wins; otherwise try the per-image subdir
+        # layout, then the flat layout. Auto-detection assumes the overlay dir
+        # is named after from-env, which is not true everywhere — set
+        # from-overlay-path when it isn't.
         FIRST_IMAGE=$(echo "$IMAGES" | awk '{print $1}')
-        SUBDIR_KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/${FIRST_IMAGE}/kustomization.yaml"
-        FLAT_KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/kustomization.yaml"
+        KUSTOMIZATION="${{ inputs.from-overlay-path }}"
+        if [ -z "$KUSTOMIZATION" ]; then
+          SUBDIR_KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/${FIRST_IMAGE}/kustomization.yaml"
+          FLAT_KUSTOMIZATION="${OVERLAY_BASE}/${FROM_ENV}/kustomization.yaml"
 
-        if git show "origin/${BRANCH}:${SUBDIR_KUSTOMIZATION}" >/dev/null 2>&1; then
-          KUSTOMIZATION="$SUBDIR_KUSTOMIZATION"
-        else
-          KUSTOMIZATION="$FLAT_KUSTOMIZATION"
+          if git show "origin/${BRANCH}:${SUBDIR_KUSTOMIZATION}" >/dev/null 2>&1; then
+            KUSTOMIZATION="$SUBDIR_KUSTOMIZATION"
+          else
+            KUSTOMIZATION="$FLAT_KUSTOMIZATION"
+          fi
+        fi
+
+        if ! git show "origin/${BRANCH}:${KUSTOMIZATION}" >/dev/null 2>&1; then
+          echo "::error::${KUSTOMIZATION} does not exist on ${BRANCH}. Set from-overlay-path if the source overlay directory is not named '${FROM_ENV}'."
+          exit 1
         fi
 
         git checkout "origin/${BRANCH}" -- "$KUSTOMIZATION"
