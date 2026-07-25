@@ -147,9 +147,13 @@ runs:
           # Save existing image tags before cherry-picking overwrites them
           save_image_tags
 
-          # Find the last source SHA this deploy branch was synced to
-          LAST_SHA=$(git log --format=%B -20 "$DEPLOY_BRANCH" \
-            | grep -m1 "^${TRAILER_KEY}:" | awk '{print $2}' || true)
+          # Find the last source SHA this deploy branch was synced to.
+          # NB: materialise the log first. Piping git straight into an
+          # early-exiting filter (grep -m1, head -1) kills git with SIGPIPE,
+          # which `pipefail` reports as exit 141.
+          DEPLOY_LOG=$(git log --format=%B -20 "$DEPLOY_BRANCH")
+          LAST_SHA=$(awk -v key="${TRAILER_KEY}:" \
+            'index($0, key) == 1 { print $2; exit }' <<<"$DEPLOY_LOG")
 
           if [ -n "$LAST_SHA" ]; then
             echo "==> Last synced SHA (${TRAILER_KEY}): ${LAST_SHA}"

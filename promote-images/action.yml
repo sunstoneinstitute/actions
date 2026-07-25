@@ -83,9 +83,12 @@ runs:
 
         # Resolve the main SHA that the source deploy branch is based on
         # by reading the main-sha trailer from the latest deploy commit.
+        # NB: materialise the log first. Piping git straight into an
+        # early-exiting filter (grep -m1, head -1) kills git with SIGPIPE,
+        # which `pipefail` reports as exit 141.
         if [ -z "$SOURCE_SHA" ]; then
-          SOURCE_SHA=$(git log --format=%B -20 "origin/${BRANCH}" \
-            | grep -m1 '^main-sha:' | awk '{print $2}')
+          DEPLOY_LOG=$(git log --format=%B -20 "origin/${BRANCH}")
+          SOURCE_SHA=$(awk 'index($0, "main-sha:") == 1 { print $2; exit }' <<<"$DEPLOY_LOG")
           if [ -z "$SOURCE_SHA" ]; then
             echo "::error::No main-sha trailer found on ${BRANCH}. Deploy branch needs manual repair."
             exit 1
