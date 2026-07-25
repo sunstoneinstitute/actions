@@ -108,6 +108,11 @@ Both `update-deploy-branch` and `promote-images` detect the layout
 automatically. You can also override detection with the `overlay-path`
 input.
 
+Auto-detection assumes the overlay directory is named after the environment.
+When it isn't — e.g. env `dev` living in `deploy/overlays/hzdev` — pass paths
+explicitly: `overlay-path` for the target overlay, and, for `promote-images`,
+`from-overlay-path` for the source overlay it reads the current tag from.
+
 ## Usage
 
 Since this is a private repo, calling workflows must have `actions: read`
