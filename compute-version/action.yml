@@ -75,8 +75,11 @@ runs:
           exit 1
         fi
 
-        # Find latest patch tag and increment
-        LATEST_TAG=$(git tag --list "v${MAJOR_MINOR}.*" --sort=-v:refname | head -1)
+        # Find latest patch tag and increment. Take the first line with a
+        # parameter expansion rather than `| head -1`, which would kill
+        # git tag with SIGPIPE and trip `pipefail` (exit 141).
+        TAGS=$(git tag --list "v${MAJOR_MINOR}.*" --sort=-v:refname)
+        LATEST_TAG=${TAGS%%$'\n'*}
         if [ -z "$LATEST_TAG" ]; then
           PROD_TAG="v${MAJOR_MINOR}.0"
         else
