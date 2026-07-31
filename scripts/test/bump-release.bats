@@ -38,3 +38,39 @@ setup() {
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+@test "next_version_from_tags computes next version from existing git tags" {
+  cd "$BATS_TEST_TMPDIR"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test"
+  git config commit.gpgsign false
+  git commit -q --allow-empty -m "init"
+  git tag v1.2.3
+  git tag v1
+
+  run next_version_from_tags patch
+  [ "$status" -eq 0 ]
+  [ "$output" = "1.2.4" ]
+
+  run next_version_from_tags minor
+  [ "$status" -eq 0 ]
+  [ "$output" = "1.3.0" ]
+
+  run next_version_from_tags major
+  [ "$status" -eq 0 ]
+  [ "$output" = "2.0.0" ]
+}
+
+@test "next_version_from_tags starts from 0.0.0 when there are no tags" {
+  cd "$BATS_TEST_TMPDIR"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test"
+  git config commit.gpgsign false
+  git commit -q --allow-empty -m "init"
+
+  run next_version_from_tags patch
+  [ "$status" -eq 0 ]
+  [ "$output" = "0.0.1" ]
+}

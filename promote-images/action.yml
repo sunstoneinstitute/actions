@@ -32,6 +32,12 @@ inputs:
       Path to the file containing the version (.toml or .json).
       If omitted, auto-detects pyproject.toml or package.json in repo root.
     required: false
+  bump:
+    description: >
+      Version bump type (patch, minor, major), passed through to
+      compute-version. When set, the target version is computed from
+      existing git tags and version-file is ignored.
+    required: false
   source-sha:
     description: >
       Specific commit SHA on the source deploy branch to promote.
@@ -148,6 +154,7 @@ runs:
       uses: sunstoneinstitute/actions/compute-version@v1
       with:
         version-file: ${{ inputs.version-file }}
+        bump: ${{ inputs.bump }}
 
     - name: Copy images to target registry
       shell: bash

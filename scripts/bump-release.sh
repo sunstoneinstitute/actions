@@ -24,6 +24,16 @@ next_version() {
   esac
 }
 
+# next_version_from_tags <major|minor|patch>
+# Echo the next bare semver computed from existing vX.Y.Z git tags,
+# starting from 0.0.0 when there are none.
+next_version_from_tags() {
+  local bump="$1" latest base
+  latest="$(git tag | latest_semver_tag || true)"
+  base="${latest#v}"
+  next_version "${base:-0.0.0}" "$bump"
+}
+
 # main <major|minor|patch>
 # Compute the next version from existing git tags, then tag the release commit
 # (RELEASE_SHA, default HEAD) and slide the major tag. Idempotent: if the
@@ -32,11 +42,8 @@ main() {
   local bump="${1:?usage: bump-release.sh <major|minor|patch>}"
   git fetch --tags --force >/dev/null 2>&1 || true
 
-  local latest base new newtag major sha
-  latest="$(git tag | latest_semver_tag || true)"
-  base="${latest#v}"
-  base="${base:-0.0.0}"
-  new="$(next_version "$base" "$bump")"
+  local new newtag major sha
+  new="$(next_version_from_tags "$bump")"
   newtag="v${new}"
 
   if git rev-parse "$newtag" >/dev/null 2>&1; then
