@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Tag-only release helper for this actions repo. On merge, create a new
 # vX.Y.Z tag and slide the floating major tag vN to the same commit.
+# Also sourced by compute-version/action.yml; keep top-level side effects out.
 
 # latest_semver_tag
 # Read newline-separated tags on stdin; echo the highest vX.Y.Z (ignores the

@@ -4,6 +4,15 @@ setup() {
   source "${BATS_TEST_DIRNAME}/../bump-release.sh"
 }
 
+init_repo() {
+  cd "$BATS_TEST_TMPDIR"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test"
+  git config commit.gpgsign false
+  git commit -q --allow-empty -m "init"
+}
+
 @test "next_version bumps patch" {
   run next_version "1.5.0" patch
   [ "$status" -eq 0 ]
@@ -40,12 +49,7 @@ setup() {
 }
 
 @test "next_version_from_tags computes next version from existing git tags" {
-  cd "$BATS_TEST_TMPDIR"
-  git init -q
-  git config user.email "test@example.com"
-  git config user.name "Test"
-  git config commit.gpgsign false
-  git commit -q --allow-empty -m "init"
+  init_repo
   git tag v1.2.3
   git tag v1
 
@@ -63,14 +67,15 @@ setup() {
 }
 
 @test "next_version_from_tags starts from 0.0.0 when there are no tags" {
-  cd "$BATS_TEST_TMPDIR"
-  git init -q
-  git config user.email "test@example.com"
-  git config user.name "Test"
-  git config commit.gpgsign false
-  git commit -q --allow-empty -m "init"
+  init_repo
 
   run next_version_from_tags patch
   [ "$status" -eq 0 ]
   [ "$output" = "0.0.1" ]
+}
+
+@test "next_version_from_tags rejects unknown bump type" {
+  init_repo
+  run next_version_from_tags sideways
+  [ "$status" -ne 0 ]
 }

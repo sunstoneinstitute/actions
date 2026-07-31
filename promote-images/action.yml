@@ -29,8 +29,10 @@ inputs:
     required: true
   version-file:
     description: >
-      Path to the file containing the version (.toml or .json).
-      If omitted, auto-detects pyproject.toml or package.json in repo root.
+      Path to the file containing the version: pyproject.toml (.toml),
+      package.json (.json), or a plain-text VERSION file. If omitted,
+      auto-detects pyproject.toml, then package.json, then VERSION in
+      the repo root.
     required: false
   bump:
     description: >

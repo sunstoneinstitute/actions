@@ -39,8 +39,21 @@ runs:
 
         BUMP="${{ inputs.bump }}"
         if [ -n "$BUMP" ]; then
-          git fetch --tags --force >/dev/null 2>&1 || true
+          # Tag-derived mode. The caller's checkout may be shallow, so fetch tags
+          # first. Source rather than exec: bump-release.sh's CLI entry point tags
+          # and pushes; we only want the computation.
+          case "$BUMP" in
+            patch|minor|major) ;;
+            *) echo "::error::Invalid bump: ${BUMP} (expected patch, minor, or major)"; exit 1 ;;
+          esac
+
+          if ! git fetch --tags --force >/dev/null 2>&1; then
+            echo "::warning::Could not fetch tags; computing from local tags only"
+          fi
           source "${GITHUB_ACTION_PATH}/../scripts/bump-release.sh"
+          if [ -z "$(git tag | latest_semver_tag || true)" ]; then
+            echo "::warning::No vX.Y.Z tags found; starting from 0.0.0"
+          fi
           NEW="$(next_version_from_tags "$BUMP")"
           MAJOR_MINOR="${NEW%.*}"
           echo "major_minor=${MAJOR_MINOR}" >> "$GITHUB_OUTPUT"
