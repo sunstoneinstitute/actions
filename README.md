@@ -21,14 +21,17 @@ image tags in Kustomize overlays, and pushing the deploy branch.
 
 ### `compute-version`
 
-Computes a semver prod tag by reading major.minor from `pyproject.toml` or
-`package.json` and auto-incrementing the patch number based on existing git
-tags.
+Computes a semver prod tag by reading major.minor from `pyproject.toml`,
+`package.json`, or a plain-text `VERSION` file, and auto-incrementing the
+patch number based on existing git tags. Alternatively, pass
+`bump: patch|minor|major` to compute the next version from the highest
+existing `vX.Y.Z` tag, ignoring the version file.
 
 ```yaml
 - uses: sunstoneinstitute/actions/compute-version@v1
   with:
-    version-file: hugin/pyproject.toml  # or package.json; auto-detects if omitted
+    version-file: hugin/pyproject.toml  # or package.json/VERSION; auto-detects if omitted
+    # bump: minor  # optional: compute from git tags instead of version-file
 # outputs: tag (e.g. "v1.3.6"), major-minor (e.g. "1.3")
 ```
 
@@ -56,6 +59,7 @@ updates the target deploy branch, and creates a git tag.
     from-registry: ${{ vars.DEV__DOCKER_REGISTRY }}/my-app
     to-registry: ${{ vars.PROD__DOCKER_REGISTRY }}/my-app
     version-file: hugin/pyproject.toml
+    # bump: minor  # optional: version from git tags instead of version-file
 # outputs: from-tag, to-tag, source-sha
 ```
 
