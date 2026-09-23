@@ -58,6 +58,15 @@ runs:
       run: |
         set -euo pipefail
 
+        # This action rewrites overlays with yq. Most yq calls below tolerate a
+        # non-zero exit (an image may legitimately be absent from an overlay),
+        # so a missing yq would surface as "no overlay matched" rather than as
+        # a missing tool. Fail here with the real reason instead.
+        if ! command -v yq >/dev/null 2>&1; then
+          echo "::error::yq is not installed on the runner. This action needs it on PATH. Note that \`uses: mikefarah/yq\` does not provide it: that is a Docker action which runs one yq command in a container and leaves nothing on the runner. Install the binary in a prior step instead."
+          exit 1
+        fi
+
         ENV="${{ inputs.env }}"
         TAG="${{ inputs.tag }}"
         REGISTRY="${{ inputs.registry }}"
