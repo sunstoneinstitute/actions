@@ -19,3 +19,11 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo npm install -g bats
       - run: bats combine-prs/test scripts/test
+  update-deploy-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # ubuntu-latest ships mikefarah yq v4.
+      - run: bash update-deploy-branch/test-image-matcher.sh
+      - run: bash update-deploy-branch/test-trailer.sh

@@ -283,7 +283,15 @@ runs:
         # ── Commit and push ──
 
         git add -A
-        if git commit -m "${SUBJECT}" -m "${TRAILER_KEY}: ${SOURCE_SHA}"; then
+        # Record the trailer whenever the source SHA moved, even with nothing
+        # staged (deploy-only cherry-pick, preserved tags). Promotions resolve
+        # their source SHA from this trailer, so skipping it makes them stale.
+        ALLOW_EMPTY=""
+        if [ "${LAST_SHA:-}" != "$SOURCE_SHA" ]; then
+          ALLOW_EMPTY="--allow-empty"
+        fi
+        # shellcheck disable=SC2086
+        if git commit $ALLOW_EMPTY -m "${SUBJECT}" -m "${TRAILER_KEY}: ${SOURCE_SHA}"; then
           echo "==> Created deploy commit: ${SUBJECT}"
         else
           echo "==> No changes to commit"
