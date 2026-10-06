@@ -19,6 +19,38 @@ image tags in Kustomize overlays, and pushing the deploy branch.
     tag: ${{ steps.tag.outputs.sha }}
 ```
 
+### `record-deployment`
+
+Records a GitHub deployment with a status in an environment, against the
+`main` commit behind a deploy-branch revision. The commit is found from the
+`main-sha` trailer that `update-deploy-branch` writes (following `dev-sha` to
+`last-deploy/dev` when present). The PR that introduced the commit is stored in
+the deployment payload. Run it from a workflow triggered by a Flux
+`githubdispatch` Provider once the app's Kustomization has reconciled.
+
+```yaml
+on:
+  repository_dispatch:
+    types: ["Kustomization/my-app.flux-system"]
+permissions:
+  contents: read
+  deployments: write
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: sunstoneinstitute/actions/record-deployment@v1
+        with:
+          env: dev
+          revision: ${{ github.event.client_payload.metadata.revision }}
+          state: ${{ github.event.client_payload.severity == 'error' && 'failure' || 'success' }}
+          # environment-url: https://my-app.example.com
+# outputs: main-sha, deployment-id, pr-number
+```
+
 ### `compute-version`
 
 Computes a semver prod tag by reading major.minor from `pyproject.toml`,
