@@ -1,0 +1,54 @@
+name: Record Deployment
+description: >
+  Record a GitHub deployment (with status) in an environment for the main
+  commit behind a deploy-branch revision. Meant to run from a workflow
+  triggered by a Flux `githubdispatch` notification after reconciliation.
+
+inputs:
+  env:
+    description: GitHub environment name (e.g. "dev", "prod")
+    required: true
+  revision:
+    description: >
+      Deploy-branch commit that was applied. Accepts the Flux event revision
+      ("last-deploy/dev@sha1:<sha>") or a bare SHA. The deployment is recorded
+      against the main-sha trailer found on or behind this commit, following a
+      dev-sha trailer to last-deploy/dev when needed.
+    required: true
+  state:
+    description: Deployment status (success, failure, error, in_progress, queued, pending, inactive)
+    default: success
+  environment-url:
+    description: URL of the deployed environment, shown on the environment and PR
+    required: false
+  description:
+    description: Deployment description (max 140 chars). Defaults to the main commit subject.
+    required: false
+  github-token:
+    description: Token with deployments:write and contents:read
+    default: ${{ github.token }}
+
+outputs:
+  main-sha:
+    description: The main commit the deployment was recorded against
+    value: ${{ steps.record.outputs.main-sha }}
+  deployment-id:
+    description: ID of the created deployment
+    value: ${{ steps.record.outputs.deployment-id }}
+  pr-number:
+    description: PR that introduced main-sha, empty if none
+    value: ${{ steps.record.outputs.pr-number }}
+
+runs:
+  using: composite
+  steps:
+    - id: record
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_ENV: ${{ inputs.env }}
+        INPUT_REVISION: ${{ inputs.revision }}
+        INPUT_STATE: ${{ inputs.state }}
+        INPUT_ENVIRONMENT_URL: ${{ inputs.environment-url }}
+        INPUT_DESCRIPTION: ${{ inputs.description }}
+      run: ${{ github.action_path }}/record-deployment.sh
