@@ -27,3 +27,12 @@ jobs:
       # ubuntu-26.04 ships mikefarah yq v4.
       - run: bash update-deploy-branch/test-image-matcher.sh
       - run: bash update-deploy-branch/test-trailer.sh
+  setup-kustomize:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./setup-kustomize
+      - run: kustomize version | grep -F v5.8.3
+      # Second run hits the tool cache.
+      - uses: ./setup-kustomize

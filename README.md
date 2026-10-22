@@ -66,9 +66,21 @@ updates the target deploy branch, and creates a git tag.
 Caller must: `actions/checkout@v4` with `fetch-depth: 0` and authenticate
 to both container registries before calling this action.
 
+### `setup-kustomize`
+
+Installs a pinned kustomize release and adds it to `PATH`. It downloads the
+release asset directly and verifies its checksum, with no GitHub API calls.
+
+```yaml
+- uses: sunstoneinstitute/actions/setup-kustomize@v1
+  with:
+    version: 5.8.3  # default
+```
+
 ### `validate-kustomize`
 
-Builds all Kustomize overlays to catch errors before deploy.
+Builds all Kustomize overlays to catch errors before deploy. Installs kustomize
+with `setup-kustomize`.
 
 ```yaml
 - uses: sunstoneinstitute/actions/validate-kustomize@v1

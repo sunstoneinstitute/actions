@@ -1,0 +1,50 @@
+name: Setup Kustomize
+description: >
+  Install a pinned kustomize release from GitHub release downloads, verify its
+  checksum, and add it to PATH. Makes no GitHub API calls.
+
+inputs:
+  version:
+    description: Kustomize version, without the leading "v"
+    required: false
+    default: 5.8.3
+
+outputs:
+  version:
+    description: The installed kustomize version
+    value: ${{ inputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS" in
+          Linux) os=linux ;;
+          macOS) os=darwin ;;
+          *) echo "::error::Unsupported runner OS: $RUNNER_OS"; exit 1 ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::Unsupported runner arch: $RUNNER_ARCH"; exit 1 ;;
+        esac
+
+        dir="${RUNNER_TOOL_CACHE}/kustomize/${VERSION}/${arch}"
+        if [ ! -x "${dir}/kustomize" ]; then
+          asset="kustomize_v${VERSION}_${os}_${arch}.tar.gz"
+          base="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${VERSION}"
+          tmp=$(mktemp -d)
+          curl -fsSL --retry 3 -o "${tmp}/${asset}" "${base}/${asset}"
+          curl -fsSL --retry 3 -o "${tmp}/checksums.txt" "${base}/checksums.txt"
+          if command -v sha256sum >/dev/null; then sha=sha256sum; else sha="shasum -a 256"; fi
+          (cd "$tmp" && grep " ${asset}\$" checksums.txt | $sha -c -)
+          mkdir -p "$dir"
+          tar -xzf "${tmp}/${asset}" -C "$dir" kustomize
+          rm -rf "$tmp"
+        fi
+        echo "$dir" >> "$GITHUB_PATH"
+        "${dir}/kustomize" version
