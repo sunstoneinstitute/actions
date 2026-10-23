@@ -35,12 +35,55 @@ next_version_from_tags() {
   next_version "${base:-0.0.0}" "$bump"
 }
 
-# main <major|minor|patch>
+# changes_action_code
+# Read newline-separated changed paths on stdin. Succeed if any path is in a
+# top-level directory holding an action.yml (an action) or in scripts/ outside
+# scripts/test/ (sourced by actions). Run from the repo root.
+changes_action_code() {
+  local path dir
+  while IFS= read -r path; do
+    [[ "$path" == */* ]] || continue
+    dir="${path%%/*}"
+    if [ -f "${dir}/action.yml" ] || [ -f "${dir}/action.yaml" ]; then
+      return 0
+    fi
+    if [ "$dir" = scripts ] && [[ "$path" != scripts/test/* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# slide_major
+# Move the floating major tag of the latest vX.Y.Z release to the release
+# commit (RELEASE_SHA, default HEAD) without cutting a new release. Keeps vN
+# on main HEAD after merges that change no action code.
+slide_major() {
+  git fetch --tags --force >/dev/null 2>&1 || true
+  local latest major sha
+  latest="$(git tag | latest_semver_tag || true)"
+  if [ -z "$latest" ]; then
+    echo "::notice::No vX.Y.Z tags; nothing to slide."
+    return 0
+  fi
+  major="${latest#v}"
+  major="${major%%.*}"
+  sha="${RELEASE_SHA:-HEAD}"
+  git tag -f "v${major}" "$sha"
+  git push -f origin "v${major}"
+  echo "::notice::Slid v${major} to ${sha} (latest release ${latest})."
+}
+
+# main <major|minor|patch|slide>
 # Compute the next version from existing git tags, then tag the release commit
 # (RELEASE_SHA, default HEAD) and slide the major tag. Idempotent: if the
 # computed tag already exists, do nothing.
 main() {
-  local bump="${1:?usage: bump-release.sh <major|minor|patch>}"
+  local bump="${1:?usage: bump-release.sh <major|minor|patch|slide>}"
+  if [ "$bump" = slide ]; then
+    slide_major
+    return
+  fi
   git fetch --tags --force >/dev/null 2>&1 || true
 
   local new newtag major sha
