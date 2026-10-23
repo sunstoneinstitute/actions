@@ -1,13 +1,12 @@
 # Sunstone Actions — Agent Instructions
 
-Reusable composite GitHub Actions for Sunstone CI/CD. Consumers pin to the
-major floating tag (`@v1`) or, in production, to an immutable commit SHA with a
-trailing `# vX.Y.Z` comment.
+Reusable composite GitHub Actions for Sunstone CI/CD. Consumers reference the
+major floating tag (`@v1`) in every environment and never pin to a commit SHA,
+so every release reaches them without a pin bump.
 
 ## Release process — ALWAYS publish with two tag operations
 
-When you change an action, consumers pinned to `@v1` (or to whatever `@v1`
-last resolved to) will NOT receive the change unless the floating major tag is
+When you change an action, consumers on `@v1` will NOT receive the change unless the floating major tag is
 moved. Forgetting this is the lag bug this doc exists to prevent. Every release
 therefore does BOTH of the following:
 
