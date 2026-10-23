@@ -79,3 +79,38 @@ init_repo() {
   run next_version_from_tags sideways
   [ "$status" -ne 0 ]
 }
+
+@test "changes_action_code is true for a file in an action directory" {
+  init_repo
+  mkdir -p foo && touch foo/action.yml
+  run bash -c 'printf "%s\n" README.md foo/action.yml | { source "'"${BATS_TEST_DIRNAME}"'/../bump-release.sh"; changes_action_code; }'
+  [ "$status" -eq 0 ]
+}
+
+@test "changes_action_code is true for shared scripts" {
+  init_repo
+  run bash -c 'printf "%s\n" scripts/bump-release.sh | { source "'"${BATS_TEST_DIRNAME}"'/../bump-release.sh"; changes_action_code; }'
+  [ "$status" -eq 0 ]
+}
+
+@test "changes_action_code is false for docs, CI and script tests" {
+  init_repo
+  mkdir -p foo && touch foo/action.yml
+  run bash -c 'printf "%s\n" README.md CLAUDE.md .github/workflows/test.yml scripts/test/x.bats | { source "'"${BATS_TEST_DIRNAME}"'/../bump-release.sh"; changes_action_code; }'
+  [ "$status" -ne 0 ]
+}
+
+@test "slide_major moves the floating tag without a new release" {
+  init_repo
+  git tag v1.2.3
+  git tag v1
+  git commit -q --allow-empty -m "docs"
+  git init -q --bare "$BATS_TEST_TMPDIR/remote.git"
+  git remote add origin "$BATS_TEST_TMPDIR/remote.git"
+
+  run slide_major
+  [ "$status" -eq 0 ]
+  [ "$(git rev-parse v1)" = "$(git rev-parse HEAD)" ]
+  [ "$(git rev-parse 'v1.2.3^{commit}')" = "$(git rev-parse HEAD~1)" ]
+  [ -z "$(git tag --points-at HEAD | grep -E '^v[0-9]+\.' || true)" ]
+}
