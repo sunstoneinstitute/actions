@@ -1,0 +1,45 @@
+# sunstoneinstitute/actions/keycloak-token
+# Exchanges the job's GitHub OIDC token for a Keycloak access token
+# (client_credentials + federated client assertion). Needs `permissions: id-token: write`.
+name: Keycloak token
+description: Get a Keycloak service-account access token with no stored secret
+inputs:
+  client-id:
+    description: Keycloak clientId (gha-<repo>-<env>)
+    required: true
+  realm-url:
+    description: Keycloak realm issuer URL; also the required assertion audience
+    default: https://auth.sunstoneinstitute.ai/realms/sunstone
+outputs:
+  access-token:
+    description: Masked Keycloak access token
+    value: ${{ steps.token.outputs.access-token }}
+runs:
+  using: composite
+  steps:
+    - id: token
+      shell: bash
+      env:
+        CLIENT_ID: ${{ inputs.client-id }}
+        REALM_URL: ${{ inputs.realm-url }}
+      run: |
+        set -euo pipefail
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::id-token: write permission missing"; exit 1
+        fi
+        # Keycloak requires a single aud equal to the realm issuer URL.
+        assertion=$(curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$(jq -rn --arg a "$REALM_URL" '$a|@uri')" | jq -r .value)
+        echo "::add-mask::$assertion"
+        resp=$(curl -sS -w '\n%{http_code}' "$REALM_URL/protocol/openid-connect/token" \
+          -d grant_type=client_credentials \
+          --data-urlencode "client_id=$CLIENT_ID" \
+          -d client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer \
+          --data-urlencode "client_assertion=$assertion")
+        code=${resp##*$'\n'}; body=${resp%$'\n'*}
+        if [ "$code" != 200 ]; then
+          echo "::error::Keycloak returned $code: $(jq -c '{error,error_description}' <<<"$body")"; exit 1
+        fi
+        token=$(jq -r .access_token <<<"$body")
+        echo "::add-mask::$token"
+        echo "access-token=$token" >> "$GITHUB_OUTPUT"
