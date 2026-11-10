@@ -103,6 +103,80 @@ merges, then closes the superseded PRs. Creates no new PR, so the default
 
 PRs whose branches conflict are left open and listed in the combined PR body.
 
+### `sunstone-package-push`
+
+Builds and pushes Sunstone data packages to the data platform: runs
+`sunstone package build`, then `sunstone package push --branch <git branch>`,
+in the directory of each `datasets.yaml`. A push from a PR branch lands on the
+data branch of the same name, so the datasets can be reviewed before merge.
+
+**Always push** the listed files (default: the top-level `datasets.yaml`):
+
+```yaml
+- uses: actions/checkout@v6
+  with:
+    lfs: true
+- uses: sunstoneinstitute/actions/sunstone-package-push@v1
+  with:
+    paths: |
+      datasets.yaml
+      FishFarmingProject/datasets.yaml
+    client-id: ${{ vars.DATA_PLATFORM_CLIENT_ID }}
+    client-secret: ${{ secrets.DATA_PLATFORM_CLIENT_SECRET }}
+```
+
+**Push what changed**: only the `datasets.yaml` files whose `datasets.yaml`,
+`datasets.lock.yaml` or `include:` files changed. `paths` limits the
+candidates and defaults to every tracked `datasets.yaml` in the repository.
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  push-datasets:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+      - uses: sunstoneinstitute/actions/sunstone-package-push@v1
+        with:
+          mode: changed
+          client-id: ${{ vars.DATA_PLATFORM_CLIENT_ID }}
+          client-secret: ${{ secrets.DATA_PLATFORM_CLIENT_SECRET }}
+# outputs: pushed (datasets.yaml files, one per line), count
+```
+
+| Input | Default | Meaning |
+|---|---|---|
+| `mode` | `always` | `always` or `changed`. |
+| `paths` | see above | `datasets.yaml` files, one per line. |
+| `base` | auto | `changed` mode: ref to compare HEAD with. Auto is the PR base on `pull_request`, the previous head on `push`, and the default branch for a new branch. |
+| `branch` | git branch | Data platform branch. The PR head branch on `pull_request`. |
+| `env` | `prod` | `sunstone package push --env`. |
+| `build` | `true` | Run `sunstone package build` first. |
+| `namespaces-only` | `true` | Skip blob-store destinations (`gs://`, `s3://`, `r2://`). They have no branches, so a PR push would overwrite the published files. |
+| `push-args` | | Extra `sunstone package push` arguments, e.g. `--yes`. |
+| `command` | `uvx --from sunstone-py --with sunstone-data-platform sunstone` | How to run the CLI. Pin versions here, or use `uv run sunstone` for each project's locked version. |
+| `install-uv` | `true` | Install uv with `astral-sh/setup-uv`. |
+| `client-id`, `client-secret` | | Keycloak service account for the data platform. |
+| `access-token` | | A ready bearer token, used instead of the client credentials. |
+
+Notes:
+
+- Needs a sunstone-py release with `sunstone package changed` and
+  `sunstone package push --namespaces-only`.
+- `changed` mode compares from the merge base, so the action fetches full
+  history when the checkout is shallow. With the automatic base, a `push`
+  event sees only the commits of that push. Trigger on `pull_request`, or set
+  `base: origin/main`, to push everything the branch changed on every run.
+- A package that fails does not stop the others. The step fails at the end.
+- Files stored in Git LFS must be checked out (`lfs: true`). Push refuses LFS
+  pointer files.
+- Pull requests from forks get no secrets, so the push fails on auth.
+
 ## Overlay Layouts
 
 The actions support two Kustomize overlay layouts and auto-detect which
