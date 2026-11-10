@@ -177,6 +177,29 @@ Notes:
   pointer files.
 - Pull requests from forks get no secrets, so the push fails on auth.
 
+### `keycloak-token`
+
+Exchanges the job's GitHub OIDC token for a Keycloak service-account access
+token (federated client authentication). No secret is stored in GitHub. The
+Keycloak client `gha-<repo>-<env>` must trust the job's `sub`; see admin-cluster
+`docs/access-management.md`. The job needs `id-token: write` and an `environment`.
+
+```yaml
+permissions:
+  id-token: write
+jobs:
+  publish:
+    environment: prod
+    steps:
+      - id: kc
+        uses: sunstoneinstitute/actions/keycloak-token@v1
+        with:
+          client-id: gha-projects-prod
+      - uses: sunstoneinstitute/actions/sunstone-package-push@v1
+        with:
+          access-token: ${{ steps.kc.outputs.access-token }}
+```
+
 ## Overlay Layouts
 
 The actions support two Kustomize overlay layouts and auto-detect which
