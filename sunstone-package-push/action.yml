@@ -1,0 +1,114 @@
+name: Sunstone Package Push
+description: >
+  Build and push Sunstone data packages to the data platform with
+  `sunstone package build` and `sunstone package push --branch <git branch>`,
+  either for a fixed list of datasets.yaml files or for the ones a change
+  affects.
+
+inputs:
+  mode:
+    description: >
+      "always" pushes every file in `paths`. "changed" pushes only the
+      datasets.yaml files whose datasets.yaml, datasets.lock.yaml or
+      `include:` files changed since `base` (found with
+      `sunstone package changed`).
+    required: false
+    default: always
+  paths:
+    description: >
+      datasets.yaml files, one per line. In "always" mode the default is
+      `datasets.yaml` in the repository root. In "changed" mode the list
+      limits the candidates, and the default is every tracked datasets.yaml
+      in the repository.
+    required: false
+    default: ""
+  base:
+    description: >
+      "changed" mode: git ref or SHA to compare HEAD with. Default: the pull
+      request base on pull_request events, the previous head on push events,
+      and the default branch for a new branch.
+    required: false
+    default: ""
+  branch:
+    description: Data platform branch to push to. Default is the git branch (the PR head branch on pull_request events).
+    required: false
+    default: ${{ github.head_ref || github.ref_name }}
+  env:
+    description: Target environment, as in `sunstone package push --env`.
+    required: false
+    default: prod
+  build:
+    description: Run `sunstone package build` before each push.
+    required: false
+    default: "true"
+  namespaces-only:
+    description: >
+      Push only to `sunstone:` namespaces. Blob-store destinations (gs://,
+      s3://, r2://) have no branches, so a push from a PR branch would
+      overwrite the published files. Set to "false" to push those too.
+    required: false
+    default: "true"
+  push-args:
+    description: Extra arguments for `sunstone package push`, e.g. "--yes".
+    required: false
+    default: ""
+  command:
+    description: >
+      How to run the sunstone CLI. Needs sunstone-py with
+      `sunstone package changed` and the sunstone-data-platform plugin. Use
+      "uv run sunstone" to take the version each project locks.
+    required: false
+    default: uvx --from sunstone-py --with sunstone-data-platform sunstone
+  install-uv:
+    description: Install uv with astral-sh/setup-uv. Set to "false" when uv is already on PATH.
+    required: false
+    default: "true"
+  client-id:
+    description: Keycloak service-account client id (sets SUNSTONE_CLIENT_ID).
+    required: false
+    default: ""
+  client-secret:
+    description: Keycloak service-account client secret (sets SUNSTONE_CLIENT_SECRET).
+    required: false
+    default: ""
+  access-token:
+    description: A ready data-platform bearer token (sets SUNSTONE_ACCESS_TOKEN). Takes precedence over the client credentials.
+    required: false
+    default: ""
+
+outputs:
+  pushed:
+    description: The datasets.yaml files that were pushed, one per line.
+    value: ${{ steps.push.outputs.pushed }}
+  count:
+    description: How many datasets.yaml files were pushed.
+    value: ${{ steps.push.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.install-uv == 'true'
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      with:
+        enable-cache: false
+
+    - id: push
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_PATHS: ${{ inputs.paths }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_ENV: ${{ inputs.env }}
+        INPUT_BUILD: ${{ inputs.build }}
+        INPUT_NAMESPACES_ONLY: ${{ inputs.namespaces-only }}
+        INPUT_PUSH_ARGS: ${{ inputs.push-args }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_CLIENT_ID: ${{ inputs.client-id }}
+        INPUT_CLIENT_SECRET: ${{ inputs.client-secret }}
+        INPUT_ACCESS_TOKEN: ${{ inputs.access-token }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        BEFORE_SHA: ${{ github.event.before }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "${GITHUB_ACTION_PATH}/push.sh"
